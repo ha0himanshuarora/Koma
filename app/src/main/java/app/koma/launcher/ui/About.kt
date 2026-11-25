@@ -185,7 +185,8 @@ internal fun AboutPage(state: HomeState) {
 private fun copy(ctx: Context, text: String) {
     try {
         ctx.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("email", text))
-        Toast.makeText(ctx, "Copied", Toast.LENGTH_SHORT).show()
+        // Android 13 and later show their own "copied" confirmation, so Koma adds one only on older versions.
+        if (android.os.Build.VERSION.SDK_INT < 33) Toast.makeText(ctx, "Copied", Toast.LENGTH_SHORT).show()
     } catch (e: Exception) {
     }
 }

@@ -160,8 +160,7 @@ fun Drawer(state: HomeState) {
             list += row
         }
         // While searching, the best match goes last so it sits at the bottom, next to the thumb.
-        val filtered = if (q.isEmpty()) list else list.filter { it.label.contains(q, ignoreCase = true) }
-            .sortedWith(compareBy({ !it.label.startsWith(q, ignoreCase = true) }, { it.label.lowercase() })).reversed().toMutableList()
+        val filtered = if (q.isEmpty()) list else app.koma.launcher.data.AppMatch.filter(list, q) { it.label }.reversed().toMutableList()
         val pinned = ArrayList<DrawerRow>()
         val koma = ArrayList<DrawerRow>()
         if (pick == null) {

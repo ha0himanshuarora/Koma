@@ -353,6 +353,8 @@ class HomeState(private val context: Context) {
     /** The default music style: used by music tiles that have not been given a style of their own. Tiles with their own style keep it. */
     fun setMusicStyle(id: String) {
         prefs.musicStyle = id
+        // A tile that picked its own style would ignore this and the page would seem to do nothing, so every music tile follows the choice.
+        allOf(Kind.MUSIC).filter { MusicArg.style(it.arg).isNotEmpty() }.forEach { setArg(it.id, MusicArg.make(MusicArg.app(it.arg), "")) }
     }
 
     /** Every tile and stacked component of one kind, so a settings page can tell which of its styles are in use. */

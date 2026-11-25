@@ -260,7 +260,16 @@ fun HomeScreen(state: HomeState, homePress: Int, homeInApp: Boolean = false) {
         LocalBadge provides state.prefs.tileBadge,
         LocalDensity provides Density(density.density, fontScale),
     ) {
-        Box(Modifier.fillMaxSize().background(groundColor).edgeScrub(state).displayCutoutPadding()) {
+        // Full-screen apps and settings are opaque all the way up, including the strip beside a camera cutout, which
+        // the cutout padding below would otherwise leave showing the wallpaper through a see-through ground.
+        val solidScreen = when (state.screen) {
+            Screen.Settings, Screen.Notes, Screen.Tasks, Screen.Focus, Screen.Clock, Screen.Calc, Screen.Apps -> true
+            else -> false
+        }
+        Box(
+            Modifier.fillMaxSize().background(groundColor).then(if (solidScreen) Modifier.background(pal.ground) else Modifier)
+                .edgeScrub(state).displayCutoutPadding(),
+        ) {
             val locked = state.focusActive != null
             if (locked) {
                 FocusOnScreen(state)

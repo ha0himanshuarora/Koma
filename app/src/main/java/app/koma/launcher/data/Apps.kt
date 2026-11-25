@@ -90,3 +90,31 @@ object Apps {
         }
     }
 }
+
+/**
+ * How well an app name matches what was typed, shared by the global search and the drawer's search.
+ * 0: the name starts with it, 1: a later word starts with it ("Maps" in "Google Maps"), 2: it appears somewhere inside.
+ * Typing more letters moves the line: "w" lists the apps starting with w first and the ones merely containing w
+ * after them, and "wa" does the same again for "wa".
+ */
+object AppMatch {
+    fun rank(label: String, query: String): Int {
+        val q = query.trim()
+        if (q.isEmpty()) return 0
+        if (label.startsWith(q, ignoreCase = true)) return 0
+        var i = label.indexOf(q, ignoreCase = true)
+        if (i < 0) return -1
+        while (i >= 0) {
+            if (i == 0 || !label[i - 1].isLetterOrDigit()) return 1
+            i = label.indexOf(q, i + 1, ignoreCase = true)
+        }
+        return 2
+    }
+
+    /** The items whose name matches, best matches first and alphabetical within each kind. */
+    fun <T> filter(items: List<T>, query: String, label: (T) -> String): List<T> =
+        items.mapNotNull { val r = rank(label(it), query); if (r < 0) null else r to it }
+            .sortedWith(compareBy({ it.first }, { label(it.second).lowercase() }))
+            .map { it.second }
+}
+

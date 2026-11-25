@@ -62,17 +62,27 @@ object Quick {
 
     // ---- sums -------------------------------------------------------------------------------
 
+    private val mathNames = listOf("asin", "acos", "atan", "sinh", "cosh", "tanh", "sqrt", "cbrt", "sin", "cos", "tan", "log", "exp", "abs", "ln")
+
+    /**
+     * Anything the calculator app can work out: sums, powers, roots, factorials, percentages, trigonometry and
+     * logarithms ("sqrt(144) + 2^10", "sin 30", "5!", "cos(60) x 8"). Angles are in degrees unless the word "rad" is added.
+     */
     private fun calc(q: String): QuickAnswer? {
-        var s = q.replace('×', '*').replace('÷', '/').replace(',', '.')
-        s = s.replace(Regex("(?<=[\\d)\\s])[xX](?=[\\d(\\s.])"), "*")
-        val hasOp = s.drop(1).any { it in "+-*/^%" } || s.contains("sqrt", true)
-        if (!hasOp) return null
-        if (!Regex("^[0-9a-zA-Z.+\\-*/^()%\\s]+$").matches(s)) return null
+        var s = q.lowercase().replace('×', '*').replace('÷', '/').replace(',', '.').replace('−', '-')
+        val rad = Regex("\\brad\\b").containsMatchIn(s)
+        s = s.replace(Regex("\\b(rad|deg)\\b"), "")
+        s = s.replace("²", "^2").replace("³", "^3").replace(Regex("\\bpi\\b"), "π")
+        s = s.replace(Regex("(?<=[\\d)\\s])x(?=[\\d(\\s.])"), "*")
+        if (!Regex("^[0-9a-z.+\\-*/^()%!√∛π\\s]+$").matches(s)) return null
+        if (!s.any { it.isDigit() || it == 'π' }) return null
+        val hasFn = s.contains('√') || s.contains('∛') || mathNames.any { s.contains(it) }
+        val hasOp = s.trim().drop(1).any { it in "+-*/^%!" } || s.trim().endsWith("!")
+        if (!hasOp && !hasFn) return null
         return try {
-            // The calculator app's own evaluator, so both give the same answers.
-            val v = CalcEngine.eval(s.lowercase().replace(Regex("\\bpi\\b"), "π").filterNot { it.isWhitespace() }, true, BigDecimal.ZERO)
-            val t = fmt(v.toDouble())
-            QuickAnswer("calc", "= $t", "$q / TAP TO COPY", t)
+            // The calculator app's own evaluator, so the search bar and the calculator always agree.
+            val v = CalcEngine.eval(s.filterNot { it.isWhitespace() }, !rad, BigDecimal.ZERO)
+            QuickAnswer("calc", "= " + CalcEngine.format(v), "$q / TAP TO COPY", CalcEngine.plain(v).replace('−', '-'))
         } catch (e: Exception) {
             null
         }

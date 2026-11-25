@@ -642,7 +642,8 @@ private fun KeyRow(modifier: Modifier, content: @Composable RowScope.() -> Unit)
 private fun copy(ctx: Context, text: String) {
     try {
         (ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("Koma", text))
-        Toast.makeText(ctx, "Copied", Toast.LENGTH_SHORT).show()
+        // Android 13 and later show their own "copied" confirmation, so Koma adds one only on older versions.
+        if (android.os.Build.VERSION.SDK_INT < 33) Toast.makeText(ctx, "Copied", Toast.LENGTH_SHORT).show()
     } catch (e: Exception) {
     }
 }

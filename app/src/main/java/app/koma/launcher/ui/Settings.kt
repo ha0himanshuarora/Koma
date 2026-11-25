@@ -553,15 +553,14 @@ private fun MusicStylePage(state: HomeState) {
     val prefs = state.prefs
     val sample = app.koma.launcher.data.NowPlaying("Vaaroon forever", "Anand Bhaskar", true, "", position = 70_000L, duration = 200_000L)
     Page("Music", "SETTINGS / LOOK", onBack = { state.settingsPage = "" }) {
-        val inUse = state.musicStylesInUse()
-        PageHero("DEFAULT STYLE", musicStyles.firstOrNull { it.first == prefs.musicStyle }?.second ?: "", "Tap a style to make it the default. A tile can still pick its own in its options, so several can be on screen at once.")
+        PageHero("MUSIC STYLE", musicStyles.firstOrNull { it.first == prefs.musicStyle }?.second ?: "", "Tap a style to use it on every music tile.")
         Group("MUSIC STYLE") {
             GroupPad {
                 musicStyles.chunked(2).forEachIndexed { row, pair ->
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         pair.forEachIndexed { col, (id, name) ->
                             val isDefault = prefs.musicStyle == id
-                            val on = id in inUse || isDefault
+                            val on = isDefault
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Box(Modifier.fillMaxWidth().height(190.dp).clip(TileShape).clickable { state.setMusicStyle(id) }) {
                                     Box(Modifier.fillMaxSize().alpha(if (on) 1f else 0.55f)) {

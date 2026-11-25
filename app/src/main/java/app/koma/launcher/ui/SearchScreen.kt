@@ -77,8 +77,7 @@ fun SearchScreen(state: HomeState) {
         if (q.isEmpty()) {
             state.recentApps().filter { FocusEngine.allows(it.pkg) }.take(5).reversed()
         } else {
-            usable.filter { it.label.contains(q, ignoreCase = true) }
-                .sortedWith(compareBy({ !it.label.startsWith(q, ignoreCase = true) }, { it.label.lowercase() }))
+            app.koma.launcher.data.AppMatch.filter(usable, q) { it.label }
                 .take(5)
                 .reversed()
         }
@@ -203,7 +202,8 @@ internal fun runQuick(ctx: android.content.Context, a: QuickAnswer) {
             else -> {
                 val cm = ctx.getSystemService(android.content.ClipboardManager::class.java)
                 cm?.setPrimaryClip(android.content.ClipData.newPlainText("Koma", a.value))
-                android.widget.Toast.makeText(ctx, "Copied ${a.value}", android.widget.Toast.LENGTH_SHORT).show()
+                // Android 13 and later show their own "copied" confirmation, so Koma adds one only on older versions.
+                if (android.os.Build.VERSION.SDK_INT < 33) android.widget.Toast.makeText(ctx, "Copied ${a.value}", android.widget.Toast.LENGTH_SHORT).show()
             }
         }
     } catch (e: Exception) {
