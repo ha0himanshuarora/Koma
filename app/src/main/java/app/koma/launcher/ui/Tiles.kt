@@ -29,6 +29,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
@@ -826,8 +828,8 @@ fun GlyphIcon(glyph: String, size: Dp, bg: Color, ink: Color, line: Color) {
         "stellar" -> Box(Modifier.size(size).clip(shape).background(Color(0xFF0A0B16)), contentAlignment = Alignment.Center) {
             Glyph(glyph, Color.White, inner, 2f)
         }
-        "chroma" -> Box(Modifier.size(size).clip(shape).background(Color(0xFF101114)), contentAlignment = Alignment.Center) {
-            Glyph(glyph, bg.opaque(), inner, 2f)
+        "chroma" -> Box(Modifier.size(size), contentAlignment = Alignment.Center) {
+            Glyph(glyph, bg.opaque(), size * 0.64f, 2.2f)
         }
         else -> Box(Modifier.size(size).clip(shape).background(bg), contentAlignment = Alignment.Center) {
             Glyph(glyph, ink, inner, 2f)
@@ -1048,7 +1050,7 @@ fun CalendarTile(w: Int, h: Int, bg: Color, ink: Color, granted: Boolean, hidden
             // The calendar is read as often as the setting says; the "now" marker moves every minute without touching it.
             if (System.currentTimeMillis() - fetched >= every * 60_000L) {
                 events = if (granted) {
-                    withContext(Dispatchers.IO) { CalendarRepo.upcoming(ctx, hidden, days = if (month) 42 else 7, limit = if (month) 200 else 8) }
+                    withContext(Dispatchers.IO) { CalendarRepo.upcoming(ctx, hidden, days = if (month) 42 else 7, limit = if (month) 200 else 40) }
                 } else emptyList()
                 fetched = System.currentTimeMillis()
             }
@@ -1106,10 +1108,13 @@ fun CalendarTile(w: Int, h: Int, bg: Color, ink: Color, granted: Boolean, hidden
                 }
                 // The next few things coming up, across days, each tagged with its day.
                 Box(Modifier.fillMaxWidth().height(1.dp).background(ink.copy(alpha = 0.18f)))
-                val coming = upcoming.take(if (h >= 5) 3 else 2)
+                val coming = upcoming.take(60)
                 if (coming.isEmpty()) {
                     BasicText(title, style = label(ink.copy(alpha = 0.8f), 10.sp, bold = true), maxLines = 1)
-                } else coming.forEach { e ->
+                } else Column(
+                    Modifier.fillMaxWidth().then(Modifier.heightIn(max = if (h >= 5) 56.dp else 40.dp)).verticalScroll(androidx.compose.foundation.rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) { coming.forEach { e ->
                     val d = Instant.ofEpochMilli(e.begin).atZone(z).toLocalDate()
                     val tag = if (d == now.toLocalDate()) "TODAY" else d.format(DateTimeFormatter.ofPattern("EEE d", Locale.getDefault())).uppercase()
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1118,7 +1123,7 @@ fun CalendarTile(w: Int, h: Int, bg: Color, ink: Color, granted: Boolean, hidden
                         BasicText(e.title, style = display(13.sp, ink, 0.em, 1f), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                         BasicText(if (e.allDay) "ALL DAY" else timeText(e.begin, is24), style = label(ink.copy(alpha = 0.7f), 9.sp, bold = true), maxLines = 1)
                     }
-                }
+                } }
             }
             // 4x2: today on the left, agenda on the right.
             w >= 4 && h >= 2 -> Row(Modifier.fillMaxSize().padding(14.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -1131,7 +1136,9 @@ fun CalendarTile(w: Int, h: Int, bg: Color, ink: Color, granted: Boolean, hidden
                     BasicText(if (events.isEmpty()) "TODAY" else "${events.size} TODAY", style = label(ink, 10.sp))
                     if (!granted || events.isEmpty()) {
                         BasicText(title, style = display(17.sp, ink, (-0.01).em, 1.05f))
-                    } else events.take(3).forEach { e -> AgendaRow(e, nowMs, is24, ink, tone(e)) }
+                    } else Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(androidx.compose.foundation.rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        events.forEach { e -> AgendaRow(e, nowMs, is24, ink, tone(e)) }
+                    }
                 }
             }
             // 4x1 strip from the design.
@@ -1157,7 +1164,9 @@ fun CalendarTile(w: Int, h: Int, bg: Color, ink: Color, granted: Boolean, hidden
                 BasicText(if (whenText.isEmpty()) "TODAY" else "TODAY / ${events.size}", style = label(ink, 10.sp))
                 if (!granted || events.isEmpty()) {
                     BasicText(title, style = display(16.sp, ink, (-0.01).em, 1.05f))
-                } else events.take(3).forEach { e -> AgendaRow(e, nowMs, is24, ink, tone(e)) }
+                } else Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(androidx.compose.foundation.rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    events.forEach { e -> AgendaRow(e, nowMs, is24, ink, tone(e)) }
+                }
             }
             // 2x1: next event.
             w >= 2 -> Column(Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.SpaceBetween) {

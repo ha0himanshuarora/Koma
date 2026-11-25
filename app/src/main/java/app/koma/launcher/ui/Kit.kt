@@ -36,6 +36,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.offset
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -372,14 +373,33 @@ fun Page(
     }
 }
 
-/** A tile-coloured card at the top of a page: a small caption, a big line, and optionally a note. */
+/** A tile-coloured card with two soft shapes in the theme's other colours. The header card of Settings pages. */
 @Composable
-fun PageHero(caption: String, title: String, note: String = "", colour: Color = LocalPalette.current.tiles[0]) {
+fun HeroBox(colour: Color = LocalPalette.current.tiles[0], content: @Composable ColumnScope.() -> Unit) {
     val pal = LocalPalette.current
-    Column(Modifier.fillMaxWidth().clip(TileShape).background(colour).padding(horizontal = 18.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        BasicText(caption.uppercase(), style = monoStyle(pal.ink.copy(alpha = 0.65f), 10, bold = true), maxLines = 1)
-        BasicText(title, style = dispStyle(pal.ink, 28), maxLines = 2)
+    val others = pal.tiles.filter { it != colour }.ifEmpty { pal.tiles }
+    Box(Modifier.fillMaxWidth().clip(TileShape).background(colour)) {
+        Box(Modifier.align(Alignment.TopEnd).offset(x = 46.dp, y = (-56).dp).size(170.dp).clip(CircleShape).background(others[0].copy(alpha = 0.55f)))
+        Box(Modifier.align(Alignment.TopEnd).offset(x = (-30).dp, y = 74.dp).size(54.dp).clip(CircleShape).background(others[1 % others.size].copy(alpha = 0.6f)))
+        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp), verticalArrangement = Arrangement.spacedBy(8.dp), content = content)
+    }
+}
+
+/** The card at the top of a page: a small caption, a big line, an optional note and optional chips. */
+@Composable
+fun PageHero(caption: String, title: String, note: String = "", colour: Color = LocalPalette.current.tiles[0], chips: List<String> = emptyList()) {
+    val pal = LocalPalette.current
+    HeroBox(colour) {
+        BasicText(caption.uppercase(), style = monoStyle(pal.ink.copy(alpha = 0.7f), 10, bold = true), maxLines = 1)
+        BasicText(title, style = dispStyle(pal.ink, 30), maxLines = 2)
         if (note.isNotEmpty()) BasicText(note, style = bodyStyle(pal.ink.copy(alpha = 0.75f), 13))
+        if (chips.isNotEmpty()) Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            chips.forEach { c ->
+                Box(Modifier.clip(RoundedCornerShape(8.dp)).background(pal.ink.copy(alpha = 0.14f)).padding(horizontal = 9.dp, vertical = 5.dp)) {
+                    BasicText(c.uppercase(), style = monoStyle(pal.ink, 9, bold = true), maxLines = 1)
+                }
+            }
+        }
     }
 }
 

@@ -145,7 +145,7 @@ class Prefs(sp: SharedPreferences) {
 
     // Search
     var engine by Pref(sp, "engine", "google")
-    var customEngine by Pref(sp, "custom_engine", "https://example.com/search?q=%s")
+    var customEngine by Pref(sp, "custom_engine", "")
 
     // Misc
     /** 0 dimmed wallpaper, 1 clear wallpaper, 2 solid colour. */

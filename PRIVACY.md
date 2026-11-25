@@ -27,4 +27,4 @@ The Weather tile sends your approximate coordinates to a public weather service 
 Koma is not directed at children and collects nothing from anyone.
 
 ## Changes and contact
-If this policy changes, the date above changes. Questions: add your contact email here before publishing.
+If this policy changes, the date above changes. Questions: ha0himanshuarora@gmail.com

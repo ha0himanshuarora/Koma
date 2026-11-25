@@ -6,6 +6,7 @@ import android.content.Context
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.ui.platform.LocalDensity
@@ -102,13 +103,19 @@ private class CalcModel(val ctx: Context) {
     var loading by mutableStateOf(false)
     var offline by mutableStateOf(false)
 
-    init {
+    init { loadHistory() }
+
+    /** Reads the saved history again, so the home tile and the app never overwrite each other's entries. */
+    private fun loadHistory() {
         try {
             val a = JSONArray(file.read() ?: "[]")
+            val list = ArrayList<Pair<String, String>>()
             for (i in 0 until a.length()) {
                 val o = a.getJSONObject(i)
-                history.add(o.getString("e") to o.getString("r"))
+                list.add(o.getString("e") to o.getString("r"))
             }
+            history.clear()
+            history.addAll(list)
         } catch (e: Exception) {
         }
     }
@@ -229,6 +236,7 @@ private class CalcModel(val ctx: Context) {
         if (expr.isEmpty() || justEval) return
         try {
             val v = CalcEngine.eval(expr, deg, ans)
+            loadHistory()
             history.add(0, expr to CalcEngine.format(v))
             while (history.size > 60) history.removeAt(history.size - 1)
             save()
@@ -390,6 +398,123 @@ private class CalcModel(val ctx: Context) {
     }
 }
 
+// ---- home screen tile --------------------------------------------------------------------------
+
+/**
+ * The calculator on the home screen, in the tile's own colours. It works in place and shares everything with the
+ * app. Wide, short sizes put the display beside the keys; tall ones stack them. Tapping the display opens the app,
+ * holding it copies the answer, and holding backspace clears.
+ */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+fun CalcTile(w: Int, h: Int, bg: Color, ink: Color, onOpen: () -> Unit) {
+    val ctx = LocalContext.current
+    val m = remember { sharedCalc(ctx) }
+    val live = if (m.justEval || m.err.isNotEmpty()) null else m.result()
+    val hasOp = m.expr.any { it in "+−×÷^%!" } && !(m.expr.startsWith("−") && m.expr.drop(1).all { it.isDigit() || it == '.' })
+    val big = if (m.justEval) CalcEngine.format(m.ans) else m.expr.ifEmpty { "0" }
+    val last = m.history.firstOrNull()
+    val small = when {
+        m.err.isNotEmpty() -> m.err
+        m.justEval -> m.shown + " ="
+        live != null && hasOp -> "= " + CalcEngine.format(live)
+        m.expr.isEmpty() && last != null -> last.first + " = " + last.second
+        else -> ""
+    }
+    val split = h <= 2 && w >= 3
+    BoxWithConstraints(Modifier.fillMaxSize().clip(TileShape).background(bg)) {
+        val pad = if (maxWidth > 250.dp) 14.dp else 10.dp
+        val gap = 4.dp
+        val rowsN = if (split) 4 else 5
+        val keysW = if (split) (maxWidth - pad * 2) * 0.58f else maxWidth - pad * 2
+        val keysH = if (split) maxHeight - pad * 2 else (maxHeight - pad * 2) * 0.64f
+        val keyH = (keysH - gap * (rowsN - 1)) / rowsN
+        val keyW = (keysW - gap * 3) / 4
+        val ts = (minOf(keyH.value, keyW.value) * 0.42f).coerceIn(13f, 22f).toInt()
+
+        @Composable
+        fun RowScope.K(label: String, kind: Int = 0, glyph: String? = null, onLong: (() -> Unit)? = null, onClick: () -> Unit) {
+            // 0 digits sit bare on the tile, 1 are the tools, 2 the operators, 3 the equals key.
+            val fill = when (kind) { 3 -> ink; 2 -> ink.copy(alpha = 0.18f); 1 -> ink.copy(alpha = 0.08f); else -> Color.Transparent }
+            val fg = if (kind == 3) bg else ink
+            Box(
+                Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(50)).background(fill)
+                    .combinedClickable(onLongClick = onLong, onClick = onClick),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (glyph != null) Glyph(glyph, fg, (ts + 2).dp, 2.2f)
+                else BasicText(label, style = bodyStyle(fg, if (kind >= 2) ts + 2 else ts, medium = kind != 0), maxLines = 1)
+            }
+        }
+
+        @Composable
+        fun Display(mod: Modifier) {
+            Column(
+                mod.combinedClickable(onLongClick = { copy(ctx, if (m.justEval) CalcEngine.format(m.ans, 15, false) else m.expr) }, onClick = onOpen)
+                    .padding(horizontal = 4.dp),
+                verticalArrangement = Arrangement.SpaceBetween,
+            ) {
+                BasicText("CALCULATOR" + if (m.memSet) "  /  M" else "", style = label(ink.copy(alpha = 0.7f), 10.sp, bold = true), maxLines = 1)
+                Column(Modifier.fillMaxWidth().weight(1f), verticalArrangement = Arrangement.Bottom, horizontalAlignment = Alignment.End) {
+                    if (small.isNotEmpty()) BasicText(small, style = monoStyle(ink.copy(alpha = 0.6f), 10), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    FitText(big, ink, if (split) 34 else 44, Modifier.fillMaxWidth().weight(if (split) 1f else 1.5f))
+                }
+            }
+        }
+
+        @Composable
+        fun Keys(mod: Modifier) {
+            val rows = if (split) listOf(
+                listOf("7", "8", "9", "÷"), listOf("4", "5", "6", "×"), listOf("1", "2", "3", "−"), listOf("0", ".", "=", "+"),
+            ) else listOf(
+                listOf("AC", "back", "%", "÷"), listOf("7", "8", "9", "×"), listOf("4", "5", "6", "−"),
+                listOf("1", "2", "3", "+"), listOf("±", "0", ".", "="),
+            )
+            Column(mod, verticalArrangement = Arrangement.spacedBy(gap)) {
+                rows.forEach { row ->
+                    Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(gap)) {
+                        row.forEach { k ->
+                            when (k) {
+                                "AC" -> K("AC", 1) { m.clear() }
+                                "back" -> K("", 1, "backspace", onLong = { m.clear() }) { m.back() }
+                                "%" -> K("%", 1) { m.suffix("%") }
+                                "÷", "×", "−", "+" -> K(k, 2) { m.op(k) }
+                                "±" -> K("±", 1) { m.sign() }
+                                "." -> K(".") { m.dot() }
+                                "=" -> K("=", 3) { m.equals() }
+                                else -> K(k) { m.digit(k) }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (split) {
+            Row(Modifier.fillMaxSize().padding(pad), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(Modifier.weight(0.42f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(gap)) {
+                    Display(Modifier.weight(1f).fillMaxWidth())
+                    Row(Modifier.fillMaxWidth().height(keyH), horizontalArrangement = Arrangement.spacedBy(gap)) {
+                        K("AC", 1) { m.clear() }
+                        K("", 1, "backspace", onLong = { m.clear() }) { m.back() }
+                    }
+                }
+                Keys(Modifier.weight(0.58f).fillMaxHeight())
+            }
+        } else {
+            Column(Modifier.fillMaxSize().padding(pad), verticalArrangement = Arrangement.spacedBy(gap)) {
+                Display(Modifier.fillMaxWidth().weight(1f))
+                Keys(Modifier.fillMaxWidth().fillMaxHeight(0.64f))
+            }
+        }
+    }
+}
+
+private var sharedModel: CalcModel? = null
+
+/** The one calculator, used by both the home tile and the app, so what you type in one is there in the other. */
+private fun sharedCalc(ctx: Context): CalcModel = sharedModel ?: CalcModel(ctx.applicationContext).also { sharedModel = it }
+
 // ---- screen ------------------------------------------------------------------------------------
 
 private val modeNames = listOf("BASIC", "SCIENTIFIC", "PROGRAMMER", "CONVERT")
@@ -415,7 +540,7 @@ private fun FitText(text: String, color: Color, top: Int, modifier: Modifier = M
 private fun CalcBody(state: HomeState) {
     val pal = state.palette
     val ctx = LocalContext.current
-    val m = remember { CalcModel(ctx.applicationContext) }
+    val m = remember { sharedCalc(ctx) }
     var history by remember { mutableStateOf(false) }
     var picking by remember { mutableIntStateOf(0) }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
@@ -937,26 +1062,41 @@ private fun HistoryPage(m: CalcModel, onClose: () -> Unit) {
             .pointerInput(Unit) { detectTapGestures { } },
     ) {
         Row(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(48.dp).clip(CircleShape).background(surfaceColor(0.1f)).clickable { onClose() }, contentAlignment = Alignment.Center) {
-                Glyph("back", pal.onGround, 22.dp, 2.4f)
-            }
+            CircleBtn("back") { onClose() }
             Column(Modifier.weight(1f).padding(start = 14.dp)) {
-                BasicText("History", style = dispStyle(pal.onGround, 26), maxLines = 1)
-                BasicText("${m.history.size} CALCULATIONS", style = monoStyle(pal.onGround.copy(alpha = 0.55f), 10))
+                BasicText("History", style = dispStyle(pal.onGround, 30), maxLines = 1)
+                BasicText(
+                    if (m.history.isEmpty()) "NOTHING YET" else "${m.history.size} CALCULATION${if (m.history.size == 1) "" else "S"} / TAP TO USE",
+                    style = monoStyle(pal.onGround.copy(alpha = 0.55f), 10), maxLines = 1,
+                )
             }
-            if (m.history.isNotEmpty()) Pill("CLEAR", surfaceColor(0.12f), pal.onGround) { m.clearHistory() }
+            if (m.history.isNotEmpty()) CircleBtn("trash") { m.clearHistory() }
         }
         if (m.history.isEmpty()) {
-            BasicText("Nothing yet. Press = and it shows up here.", style = bodyStyle(pal.onGround.copy(alpha = 0.6f), 15), modifier = Modifier.padding(24.dp))
-        }
-        LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(m.history.toList()) { (e, r) ->
-                Column(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(cardBg()).clickable { m.insertResult(r); onClose() }.padding(horizontal = 20.dp, vertical = 14.dp),
-                    horizontalAlignment = Alignment.End,
-                ) {
-                    BasicText(e + " =", style = bodyStyle(pal.onGround.copy(alpha = 0.55f), 14), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    BasicText(r, style = dispStyle(pal.onGround, 30), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Column(Modifier.weight(1f).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                Box(Modifier.size(72.dp).clip(CircleShape).background(surfaceColor(0.1f)), contentAlignment = Alignment.Center) {
+                    Glyph("clock", pal.onGround.copy(alpha = 0.6f), 30.dp, 2f)
+                }
+                BasicText("No history yet", style = dispStyle(pal.onGround, 22), modifier = Modifier.padding(top = 16.dp))
+                BasicText(
+                    "Finish a calculation with = and it shows up here.",
+                    style = bodyStyle(pal.onGround.copy(alpha = 0.6f), 14), modifier = Modifier.padding(top = 6.dp),
+                )
+            }
+        } else {
+            LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(m.history.toList()) { (e, r) ->
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(cardBg())
+                            .clickable { m.insertResult(r); onClose() }.padding(horizontal = 20.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            BasicText(e, style = monoStyle(pal.onGround.copy(alpha = 0.55f), 12), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            BasicText("= $r", style = dispStyle(pal.onGround, 28), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
+                        }
+                        Glyph("chev", pal.onGround.copy(alpha = 0.35f), 20.dp, 2f)
+                    }
                 }
             }
         }

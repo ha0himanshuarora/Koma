@@ -58,9 +58,9 @@ object Palettes {
     val rose = Preset("rose", "Rose Dusk",
         p("rose", "Rose Dusk", 0xFF0F2247, listOf(0xFFE8195F, 0xFFF3C79A, 0xFFF8EDD3, 0xFF5B7DB8, 0xFFFF8FB1), 0xFF0F2247, 0xFFF8EDD3),
         p("rose", "Rose Dusk", 0xFFFFF1EA, listOf(0xFFE8195F, 0xFFF3C79A, 0xFFFFFAF2, 0xFF5B7DB8, 0xFFFF8FB1), 0xFF0F2247, 0xFF0F2247))
-    val sunrise = Preset("sunrise", "Sunrise",
-        p("sunrise", "Sunrise", 0xFF2F6392, listOf(0xFFF2C500, 0xFFA9D3E8, 0xFFF4F4F0, 0xFFFFE27A, 0xFFD7ECF7), 0xFF1F4468, 0xFFF4F4F0),
-        p("sunrise", "Sunrise", 0xFFE6F1FA, listOf(0xFFF2C500, 0xFFA9D3E8, 0xFFFFFFFF, 0xFFFFE27A, 0xFFBFDDF0), 0xFF1F4468, 0xFF1F4468))
+    val graphite = Preset("graphite", "Graphite Lime",
+        p("graphite", "Graphite Lime", 0xFF121418, listOf(0xFFC8F03C, 0xFF9A98FF, 0xFFFF7C8C, 0xFF5FD6C8, 0xFFF1F2EC), 0xFF121418, 0xFFF1F2EC),
+        p("graphite", "Graphite Lime", 0xFFEEF0E8, listOf(0xFFC8F03C, 0xFF9A98FF, 0xFFFF7C8C, 0xFF5FD6C8, 0xFFFFFFFF), 0xFF121418, 0xFF1A1D22))
     val ember = Preset("ember", "Ember",
         p("ember", "Ember", 0xFF1A0F0A, listOf(0xFFFF6B2C, 0xFFFFB347, 0xFFF25C54, 0xFFFFD9A0, 0xFFF4E6D8), 0xFF1A0F0A, 0xFFF4E6D8),
         p("ember", "Ember", 0xFFFFF0E4, listOf(0xFFFF6B2C, 0xFFFFB347, 0xFFF25C54, 0xFFFFD9A0, 0xFFFFFAF4), 0xFF1A0F0A, 0xFF2A1A12))
@@ -83,7 +83,7 @@ object Palettes {
         p("peach", "Peach Cloud", 0xFF2A1B17, listOf(0xFFFFB5A0, 0xFFF7D08A, 0xFFB8D8BA, 0xFFA8C6EA, 0xFFFFE9DF), 0xFF3A2620, 0xFFFBE9DF),
         p("peach", "Peach Cloud", 0xFFFBF1EA, listOf(0xFFFFB5A0, 0xFFF7D08A, 0xFFB8D8BA, 0xFFA8C6EA, 0xFFFFE9DF), 0xFF3A2620, 0xFF3A2620))
 
-    val presets = listOf(amber, rose, sunrise, ember, mint, sage, noir, lavender, ocean, peach)
+    val presets = listOf(amber, rose, graphite, ember, mint, sage, noir, lavender, ocean, peach)
 
     /** The dark Amber Signal, used before settings are read. */
     val AmberSignal: Palette get() = amber.dark

@@ -483,6 +483,38 @@ private fun HomeGrid(state: HomeState, ctx: Context, scroll: ScrollState) {
                             Modifier
                                 .matchParentSize()
                                 .pointerInput(Unit) {
+                                    // A quick swipe along a stack flips to its next or previous component; holding still picks the tile up.
+                                    // Watched in the Initial pass, before the tap, hold and scroll handlers, so the swipe is ours once it starts.
+                                    awaitEachGesture {
+                                        val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                                        val t = state.tiles.getOrNull(hit(down.position.x, down.position.y)) ?: return@awaitEachGesture
+                                        if (t.kind != Kind.STACK || dragId != null) return@awaitEachGesture
+                                        val horizontal = t.label == "h"
+                                        val quick = viewConfiguration.longPressTimeoutMillis
+                                        val slop = viewConfiguration.touchSlop
+                                        var total = Offset.Zero
+                                        var moved = 0f
+                                        var ours = false
+                                        while (true) {
+                                            val ev = awaitPointerEvent(PointerEventPass.Initial)
+                                            val c = ev.changes.firstOrNull { it.id == down.id } ?: return@awaitEachGesture
+                                            if (!c.pressed) break
+                                            val d = c.positionChange()
+                                            total += d
+                                            if (!ours) {
+                                                if (c.uptimeMillis - down.uptimeMillis >= quick) return@awaitEachGesture
+                                                if (total.getDistance() < slop) continue
+                                                val along = if (horizontal) abs(total.x) > abs(total.y) else abs(total.y) > abs(total.x)
+                                                if (!along) return@awaitEachGesture
+                                                ours = true
+                                            }
+                                            moved += if (horizontal) d.x else d.y
+                                            c.consume()
+                                        }
+                                        if (ours && abs(moved) > 24.dp.toPx()) StackNav.flip[t.id]?.invoke(if (moved < 0) 1 else -1)
+                                    }
+                                }
+                                .pointerInput(Unit) {
                                     detectTapGestures(onTap = { p ->
                                         val i = hit(p.x, p.y)
                                         if (i < 0) {
@@ -993,7 +1025,7 @@ private fun TileBody(
         Kind.COUNTDOWN -> CountdownTile(tile.w, tile.h, fill, ink, tile.arg)
         Kind.TIMER -> TimerTile(state, tile.id, tile.w, tile.h, fill, ink, tile.arg.toIntOrNull() ?: 10, state.prefs.timerEnd, state.prefs.timerLen, state.prefs.timerLeft)
         Kind.STOPWATCH -> StopwatchTile(tile.w, tile.h, fill, ink)
-        Kind.CALC -> AppTile(null, "Calc", "calc", state.icons, fill, ink)
+        Kind.CALC -> if (tile.w == 1 && tile.h == 1) AppTile(null, "Calc", "calc", state.icons, fill, ink) else CalcTile(tile.w, tile.h, fill, ink) { state.open(Screen.Calc) }
         Kind.KAPPS -> AppTile(null, "Koma", "all", state.icons, fill, ink)
         Kind.ALARMS -> {
             val tctx = LocalContext.current
@@ -1055,6 +1087,15 @@ private fun StackTile(state: HomeState, ctx: Context, tile: Tile, edit: Boolean)
         // release the stack settles on the next, the previous, or back where it was.
         val scope = androidx.compose.runtime.rememberCoroutineScope()
         val job = remember { arrayOfNulls<kotlinx.coroutines.Job>(1) }
+        androidx.compose.runtime.DisposableEffect(tile.id, ps) {
+            StackNav.flip[tile.id] = { dir ->
+                job[0]?.cancel()
+                job[0] = scope.launch {
+                    ps.animateScrollToPage(ps.currentPage + dir, animationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.85f, stiffness = 380f))
+                }
+            }
+            onDispose { StackNav.flip.remove(tile.id) }
+        }
         val dragger = Modifier.pointerInput(horizontal, edit) {
             var acc = 0f
             var start = 0
@@ -1147,6 +1188,11 @@ private fun StackTile(state: HomeState, ctx: Context, tile: Tile, edit: Boolean)
             )
         }
     }
+}
+
+/** Lets the edit-mode overlay flip a stack: the overlay sits above every tile, so a stack never sees the touch itself. */
+private object StackNav {
+    val flip = HashMap<String, (Int) -> Unit>()
 }
 
 /** Dots along the edge: a column on the right for vertical stacks, a row at the bottom for horizontal ones. */

@@ -266,7 +266,9 @@ object Engines {
     )
 
     fun url(prefs: Prefs, query: String): String {
-        val template = if (prefs.engine == "custom") prefs.customEngine else all.firstOrNull { it.first == prefs.engine }?.second?.second ?: all[0].second.second
+        var template = if (prefs.engine == "custom") prefs.customEngine.trim() else all.firstOrNull { it.first == prefs.engine }?.second?.second ?: all[0].second.second
+        // A custom address that is empty or has no %s would search for nothing, so Google answers instead.
+        if (template.isEmpty() || !template.contains("%s")) template = all[0].second.second
         return template.replace("%s", Uri.encode(query))
     }
 

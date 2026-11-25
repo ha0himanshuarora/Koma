@@ -583,6 +583,8 @@ class HomeState(private val context: Context) {
         sheetId != null -> { sheetId = null; true }
         taskEditId != null -> { closeTaskEditor(); true }
         selectedId != null -> { selectedId = null; true }
+        screen == Screen.Settings && (settingsPage == "privacy" || settingsPage == "permissions") -> { settingsPage = "about"; true }
+        screen == Screen.Settings && settingsPage == "about" -> { settingsPage = "system"; true }
         screen == Screen.Settings && settingsPage.isNotEmpty() -> { settingsPage = ""; true }
         fromHub && screen != Screen.Apps -> { fromHub = false; pick = null; screen = Screen.Apps; true }
         screen != Screen.Home -> { pick = null; screen = Screen.Home; settingsPage = ""; true }

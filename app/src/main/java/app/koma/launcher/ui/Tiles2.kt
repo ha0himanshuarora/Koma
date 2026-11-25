@@ -42,6 +42,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
@@ -413,14 +414,16 @@ private fun TaskListTile(w: Int, h: Int, bg: Color, ink: Color, title: String, e
     val late = list.count { !it.done && it.due in 0L until today }
     val pattern = TimeFmt.pattern()
     val ordered = Tasks.sortOpen(list) + list.filter { it.done }
-    val rows = if (h >= 2) (if (w >= 4) 6 else 4) else 1
+    // A one-row tile shows the next item; bigger ones list everything and scroll.
+    val shown = if (h >= 2) ordered.take(100) else ordered.take(1)
     Column(Modifier.fillMaxSize().clip(TileShape).background(bg).padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
             BasicText(title, style = label(ink, 10.sp, bold = true))
             TileChip(if (late > 0) "$late LATE" else "${list.count { !it.done }} OPEN", ink)
         }
         if (ordered.isEmpty()) BasicText(empty, style = display(14.sp, ink, 0.em, 1.05f))
-        ordered.take(rows).forEachIndexed { i, t ->
+        Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(androidx.compose.foundation.rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        shown.forEachIndexed { i, t ->
             val next = i == 0 && !t.done
             Row(
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(if (next) ink.copy(alpha = 0.09f) else Color.Transparent).padding(horizontal = 6.dp, vertical = 4.dp),
@@ -435,6 +438,7 @@ private fun TaskListTile(w: Int, h: Int, bg: Color, ink: Color, title: String, e
                 val whenText = if (t.done) "" else Tasks.whenText(t, pattern, w >= 4)
                 if (whenText.isNotEmpty()) BasicText(whenText.uppercase(), style = label(ink.copy(alpha = 0.75f), 9.sp, bold = true), maxLines = 1)
             }
+        }
         }
     }
 }

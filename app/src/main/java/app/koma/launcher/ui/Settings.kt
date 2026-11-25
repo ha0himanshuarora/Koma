@@ -4,6 +4,9 @@ import android.Manifest
 import android.content.Intent
 import android.provider.Settings
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.fillMaxSize
@@ -11,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -99,18 +103,18 @@ fun SettingsScreen(state: HomeState) {
     when (state.settingsPage) {
         "colour" -> ColourPage(state)
         "type" -> TypePage(state)
-        "icons" -> IconsPage(state)
+        "apps", "icons", "drawer", "hidden", "folders" -> AppsPage(state)
         "calendar" -> CalendarPage(state)
         "search" -> SearchPage(state)
-        "drawer" -> DrawerPage(state)
-        "hidden" -> HiddenPage(state)
-        "folders" -> FoldersPage(state)
         "looks" -> LooksPage(state)
         "gestures" -> GesturesPage(state)
         "music" -> MusicStylePage(state)
         "weather" -> WeatherPage(state)
         "system" -> SystemPage(state)
         "limits" -> LimitsPage(state)
+        "about" -> AboutPage(state)
+        "privacy" -> PrivacyPage(state)
+        "permissions" -> PermissionsPage(state)
         else -> Hub(state)
     }
 }
@@ -165,13 +169,9 @@ private fun Hub(state: HomeState) {
             ListRow("Looks", state.looks.size.let { if (it == 0) "" else "$it saved" }, "palette", t[4 % t.size], onClick = { go("looks") })
             ListRow("Theme", if (state.prefs.follow) "Following your wallpaper" else pal.name, "palette", t[0 % t.size], onClick = { go("colour") })
             ListRow("Fonts", Fonts.choices.firstOrNull { it.first == state.prefs.font }?.second ?: "Koma default", "type", t[1 % t.size], onClick = { go("type") })
-            ListRow("App icons", (IconStyles.styles.firstOrNull { it.first == state.prefs.iconStyle }?.second ?: "") + " / " + state.prefs.iconShape, "all", t[3 % t.size], onClick = { go("icons") })
         }
         Group("APPS") {
-            ListRow("App drawer", "", "all", t[2 % t.size], onClick = { go("drawer") })
-            ListRow("Folders", state.folders.size.let { if (it == 0) "" else "$it" }, "all", t[1 % t.size], onClick = { go("folders") })
-            ListRow("Hidden apps", state.hiddenKeys.size.let { if (it == 0) "" else "$it hidden" }, "all", t[0 % t.size], onClick = { go("hidden") })
-            ListRow("App limits", AppLimits.all(ctx).size.let { if (it == 0) "Daily time limits per app" else "$it with a limit" }, "timer", t[3 % t.size], onClick = { go("limits") })
+            ListRow("Apps", "${state.apps.size} apps / " + (IconStyles.styles.firstOrNull { it.first == state.prefs.iconStyle }?.second ?: "Default"), "all", t[2 % t.size], onClick = { go("apps") })
         }
         Group("PHONE") {
             ListRow("System", "", "settings", t[3 % t.size], onClick = { go("system") })
@@ -194,6 +194,7 @@ private fun LimitsPage(state: HomeState) {
         }
     }
     Page("App limits", "SETTINGS", onBack = { state.settingsPage = "" }) {
+        PageHero("APP LIMITS", if (all.isEmpty()) "None set" else "${all.size} with a limit", "An app locks when its daily time is used up.", state.palette.tiles[2 % state.palette.tiles.size])
         if (all.isEmpty()) {
             BasicText(
                 "No limits yet. Long-press an app in the drawer and set a daily limit. A thin bar along the top of the screen then fills as you use it, and the app locks when it is full.",
@@ -274,33 +275,91 @@ private fun ColourPage(state: HomeState) {
             else -> "Default colours"
         }
     }
+    val t = pal.tiles
     Page("Theme", "SETTINGS / LOOK", onBack = { state.settingsPage = "" }) {
-        // The palette in use, laid out like a tiny home screen.
-        val heroShape = RoundedCornerShape(28.dp)
-        Column(
-            Modifier.fillMaxWidth().clip(heroShape).background(pal.ground).border(1.dp, pal.onGround.copy(alpha = 0.14f), heroShape).padding(10.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Row(Modifier.fillMaxWidth().height(124.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Column(
-                    Modifier.weight(1.25f).height(124.dp).clip(RoundedCornerShape(20.dp)).background(pal.tiles[0]).padding(14.dp),
-                    verticalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    BasicText("YOUR COLOURS", style = monoStyle(pal.ink.copy(alpha = 0.65f), 9))
-                    Column {
-                        BasicText(pal.name, style = dispStyle(pal.ink, 22), maxLines = 2)
-                        BasicText(sourceText, style = bodyStyle(pal.ink.copy(alpha = 0.75f), 11), maxLines = 2)
+        PageHero("USING NOW", pal.name, sourceText, pal.tiles[0], listOf(if (state.dark) "Dark" else "Light"))
+
+        Group {
+            SwitchRow("Follow wallpaper", "Colours come from your wallpaper", prefs.follow) { on -> state.theme { follow = on } }
+        }
+
+        if (prefs.follow) {
+            Group(
+                "FROM YOUR WALLPAPER",
+                hint = if (state.wallpaperSource == "palette") "Your phone does not share its wallpaper with apps, so Koma is using its colour palette. Set a wallpaper here for exact colours." else "Tap a colour to lead the theme.",
+            ) {
+                GroupPad {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        val lead = if (prefs.mainSeed in state.wallpaperSeeds.indices) prefs.mainSeed else 0
+                        state.wallpaperSeeds.forEachIndexed { i, c ->
+                            Box(
+                                Modifier.weight(1f).height(48.dp).clip(RoundedCornerShape(14.dp)).background(Color(c))
+                                    .then(if (i == lead) Modifier.border(3.dp, pal.onGround, RoundedCornerShape(14.dp)) else Modifier)
+                                    .clickable { state.theme { mainSeed = i; follow = true } },
+                            )
+                        }
                     }
                 }
-                Column(Modifier.weight(1f).height(124.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Box(Modifier.fillMaxWidth().height(58.dp).clip(RoundedCornerShape(18.dp)).background(pal.tiles[1]))
-                    Row(Modifier.fillMaxWidth().height(58.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Box(Modifier.weight(1f).height(58.dp).clip(RoundedCornerShape(16.dp)).background(pal.tiles[2]))
-                        Box(Modifier.weight(1f).height(58.dp).clip(RoundedCornerShape(16.dp)).background(pal.tiles[3]))
+                Dropdown(Dynamic.variants, prefs.variant, "Colour style") { v -> state.theme { variant = v } }
+            }
+            Group("WALLPAPER") {
+                Dropdown(listOf("both" to "HOME + LOCK", "home" to "HOME", "lock" to "LOCK"), wpTarget, "Set wallpaper on") { wpTarget = it }
+                ListRow("Set from gallery", "", "pics", t[0 % t.size], onClick = { wallpaperPicker.launch(arrayOf("image/*")) })
+                ListRow("Colours from a picture", "", "palette", t[1 % t.size], onClick = { imagePicker.launch(arrayOf("image/*")) })
+                ListRow("Refresh colours", "", "refresh", t[2 % t.size], onClick = { state.refreshColours() })
+                if (prefs.useImageColours) ListRow("Use phone wallpaper colours", "Instead of the picture", "sun", t[3 % t.size], onClick = { state.useWallpaperColours() })
+            }
+        } else {
+            Group("PRESETS") {
+                GroupPad {
+                    Palettes.presets.chunked(2).forEach { pair ->
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            pair.forEach { preset ->
+                                val p = preset.pick(state.dark)
+                                val on = prefs.paletteId == p.id
+                                val shape = RoundedCornerShape(20.dp)
+                                Column(
+                                    Modifier.weight(1f).clip(shape).background(p.ground)
+                                        .border(if (on) 3.dp else 1.dp, if (on) pal.tiles[0] else pal.onGround.copy(alpha = 0.14f), shape)
+                                        .clickable { state.theme { follow = false; paletteId = p.id } }
+                                        .padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                                ) {
+                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        p.tiles.forEach { Box(Modifier.weight(1f).height(26.dp).clip(RoundedCornerShape(8.dp)).background(it)) }
+                                    }
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        BasicText(p.name, style = bodyStyle(p.onGround, 14, medium = true), maxLines = 1, modifier = Modifier.weight(1f))
+                                        if (on) Glyph("check", pal.tiles[0], 18.dp, 3f)
+                                    }
+                                }
+                            }
+                            if (pair.size == 1) Spacer(Modifier.weight(1f))
+                        }
                     }
                 }
             }
-            Box(Modifier.fillMaxWidth().height(26.dp).clip(RoundedCornerShape(14.dp)).background(pal.tiles[4]))
+            Group("ONE COLOUR", hint = "Builds a whole theme from a single colour.") {
+                GroupPad {
+                    // Six to a row, each in an equal slot, so the circles sit evenly across the card.
+                    Dynamic.seedChoices.chunked(6).forEach { row ->
+                        Row(Modifier.fillMaxWidth()) {
+                            row.forEach { seed ->
+                                Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                                    Box(
+                                        Modifier.size(44.dp).clip(CircleShape).background(Color(seed)).clickable {
+                                            state.theme { follow = false; paletteId = "custom"; customSeed = seed }
+                                        },
+                                        contentAlignment = Alignment.Center,
+                                    ) { if (prefs.paletteId == "custom" && prefs.customSeed == seed) Glyph("check", Color.Black, 22.dp, 3f) }
+                                }
+                            }
+                            repeat(6 - row.size) { Spacer(Modifier.weight(1f)) }
+                        }
+                    }
+                }
+                if (prefs.paletteId == "custom") Dropdown(Dynamic.variants, prefs.variant, "Colour style") { v -> state.theme { variant = v } }
+            }
         }
 
         Group(
@@ -310,97 +369,6 @@ private fun ColourPage(state: HomeState) {
             Dropdown(listOf("system" to "FOLLOW PHONE", "light" to "LIGHT", "dark" to "DARK"), prefs.themeMode, "Mode") { m -> state.theme { themeMode = m } }
             Dropdown(listOf("solid" to "SOLID", "glass" to "GLASS", "tint" to "TINTED GLASS"), prefs.tileStyle, "Tile style") { prefs.tileStyle = it }
             Dropdown(listOf("0" to "SOLID", "1" to "DIM WALLPAPER", "2" to "CLEAR WALLPAPER"), prefs.ground.toString(), "Home background") { prefs.ground = it.toInt() }
-        }
-
-        // Where the colours come from.
-        Group("COLOURS") {
-            SwitchRow("Follow wallpaper", "Use the colours of your wallpaper", prefs.follow) { on -> state.theme { follow = on } }
-            if (prefs.follow || prefs.paletteId == "custom") {
-                Dropdown(Dynamic.variants, prefs.variant, "Colour style") { v -> state.theme { variant = v } }
-            }
-            GroupPad {
-                BasicText("FROM YOUR WALLPAPER", style = monoStyle(pal.onGround.copy(alpha = 0.55f), 10, bold = true))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    val lead = if (prefs.mainSeed in state.wallpaperSeeds.indices) prefs.mainSeed else 0
-                    state.wallpaperSeeds.forEachIndexed { i, c ->
-                        Box(
-                            Modifier.weight(1f).height(48.dp).clip(RoundedCornerShape(14.dp)).background(Color(c))
-                                .then(if (i == lead && prefs.follow) Modifier.border(3.dp, pal.onGround, RoundedCornerShape(14.dp)) else Modifier)
-                                .clickable { state.theme { mainSeed = i; follow = true } },
-                        )
-                    }
-                }
-                BasicText("Tap one to lead the theme.", style = bodyStyle(pal.onGround.copy(alpha = 0.55f), 12))
-            }
-        }
-
-        // Change the wallpaper itself, or read colours from a picture.
-        Group(
-            "WALLPAPER",
-            hint = if (prefs.follow && state.wallpaperSource == "palette")
-                "Your phone does not share its wallpaper with apps, so Koma is using its colour palette. Set a wallpaper here for exact colours."
-            else null,
-        ) {
-            Dropdown(listOf("both" to "HOME + LOCK", "home" to "HOME", "lock" to "LOCK"), wpTarget, "Set wallpaper on") { wpTarget = it }
-            GroupPad {
-                Pill("SET WALLPAPER FROM GALLERY", pal.tiles[0], pal.ink, Modifier.fillMaxWidth(), height = 48) {
-                    wallpaperPicker.launch(arrayOf("image/*"))
-                }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Pill("REFRESH", pal.onGround.copy(alpha = 0.12f), pal.onGround, Modifier.weight(1f), height = 40) { state.refreshColours() }
-                    Pill("COLOURS FROM IMAGE", pal.onGround.copy(alpha = 0.12f), pal.onGround, Modifier.weight(1.6f), height = 40) { imagePicker.launch(arrayOf("image/*")) }
-                }
-                if (prefs.useImageColours) {
-                    BasicText(
-                        "USE PHONE WALLPAPER COLOURS AGAIN",
-                        style = monoStyle(pal.tiles[0], 10, bold = true),
-                        modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable { state.useWallpaperColours() }.padding(vertical = 4.dp),
-                    )
-                }
-            }
-        }
-
-        Group("PRESETS") {
-            GroupPad {
-                Palettes.presets.chunked(2).forEach { pair ->
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        pair.forEach { preset ->
-                            val p = preset.pick(state.dark)
-                            val on = !prefs.follow && prefs.paletteId == p.id
-                            val shape = RoundedCornerShape(20.dp)
-                            Column(
-                                Modifier.weight(1f).clip(shape).background(p.ground)
-                                    .border(if (on) 3.dp else 1.dp, if (on) pal.tiles[0] else pal.onGround.copy(alpha = 0.14f), shape)
-                                    .clickable { state.theme { follow = false; paletteId = p.id } }
-                                    .padding(12.dp),
-                                verticalArrangement = Arrangement.spacedBy(10.dp),
-                            ) {
-                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    p.tiles.forEach { Box(Modifier.weight(1f).height(26.dp).clip(RoundedCornerShape(8.dp)).background(it)) }
-                                }
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    BasicText(p.name, style = bodyStyle(p.onGround, 14, medium = true), maxLines = 1, modifier = Modifier.weight(1f))
-                                    if (on) Glyph("check", pal.tiles[0], 18.dp, 3f)
-                                }
-                            }
-                        }
-                        if (pair.size == 1) Spacer(Modifier.weight(1f))
-                    }
-                }
-            }
-            GroupPad {
-                BasicText("OR PICK ONE COLOUR", style = monoStyle(pal.onGround.copy(alpha = 0.6f), 10))
-                FlowRowOf {
-                    Dynamic.seedChoices.forEach { seed ->
-                        Box(
-                            Modifier.size(44.dp).clip(CircleShape).background(Color(seed)).clickable {
-                                state.theme { follow = false; paletteId = "custom"; customSeed = seed }
-                            },
-                            contentAlignment = Alignment.Center,
-                        ) { if (!prefs.follow && prefs.paletteId == "custom" && prefs.customSeed == seed) Glyph("check", Color.Black, 22.dp, 3f) }
-                    }
-                }
-            }
         }
     }
 }
@@ -553,6 +521,7 @@ internal fun ClockFontSettings(state: HomeState, onBack: () -> Unit) {
 private fun WeatherPage(state: HomeState) {
     val pal = state.palette
     Page("Weather", "SETTINGS / HOME", onBack = { state.settingsPage = "" }) {
+        PageHero("WEATHER TILE", "Local forecast", "From Open-Meteo. Only rounded coordinates are sent.", state.palette.tiles[1 % state.palette.tiles.size])
         WeatherOptions(state)
         Group("THE CAT") {
             GroupPad {
@@ -770,71 +739,6 @@ private fun LookCard(state: HomeState, l: app.koma.launcher.data.Look, busy: Boo
 }
 
 @Composable
-private fun FoldersPage(state: HomeState) {
-    val pal = state.palette
-    val t = pal.tiles
-    fun show(id: String) {
-        state.openFolderId = id
-        state.openDrawer()
-    }
-    Page("Folders", "SETTINGS / APPS", onBack = { state.settingsPage = "" }) {
-        PageHero("YOUR FOLDERS", if (state.folders.isEmpty()) "None yet" else "${state.folders.size} folder${if (state.folders.size == 1) "" else "s"}", "${state.folders.sumOf { f -> f.items.count { !it.widget } }} apps inside", t[1 % t.size])
-        Group("YOUR FOLDERS") {
-            if (state.folders.isEmpty()) GroupPad { BasicText("No folders yet.", style = bodyStyle(pal.onGround.copy(alpha = 0.7f), 14)) }
-            state.folders.forEachIndexed { i, f ->
-                val apps = f.items.count { !it.widget }
-                val widgets = f.items.count { it.widget }
-                ListRow(
-                    f.name.ifBlank { "Folder" }, "$apps apps" + if (widgets > 0) ", $widgets widgets" else "",
-                    "all", t[i % t.size], onClick = { show(f.id) },
-                )
-            }
-        }
-        Group {
-            ListRow("New folder", "", "widget", t[0 % t.size], onClick = { show(state.newFolder().id) })
-        }
-    }
-}
-
-@Composable
-private fun HiddenPage(state: HomeState) {
-    val pal = state.palette
-    var q by remember { mutableStateOf("") }
-    val hidden = state.hiddenKeys
-    Page("Hidden apps", "SETTINGS / HOME", onBack = { state.settingsPage = "" }) {
-        BasicText(
-            "Hidden apps are left out of the drawer and recents. Search still finds them and marks them hidden.",
-            style = bodyStyle(pal.onGround.copy(alpha = 0.7f), 13),
-        )
-        Row(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(pal.onGround.copy(alpha = 0.12f)).padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Glyph("search", pal.onGround.copy(alpha = 0.7f), 20.dp, 2f)
-            Spacer(Modifier.width(10.dp))
-            Field(q, { q = it }, "Search apps", Modifier.weight(1f))
-        }
-        val list = state.apps.filter { q.isBlank() || it.label.contains(q.trim(), ignoreCase = true) }.sortedBy { it.label.lowercase() }
-        Group {
-        list.forEach { a ->
-            val on = a.key in hidden
-            Row(
-                Modifier.fillMaxWidth().card()
-                    .clickable { state.toggleHidden(a.key) }.padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                AppIcon(state.icons, a, 36.dp, bg = pal.tiles[kotlin.math.abs(a.key.hashCode()) % pal.tiles.size], ink = pal.ink, line = pal.onGround)
-                Spacer(Modifier.width(14.dp))
-                BasicText(a.label, style = bodyStyle(pal.onGround, 16, medium = true), maxLines = 1, modifier = Modifier.weight(1f))
-                KToggle(on) { state.toggleHidden(a.key) }
-            }
-        }
-        }
-        if (list.isEmpty()) BasicText("No app matches.", style = bodyStyle(pal.onGround.copy(alpha = 0.7f), 14))
-    }
-}
-
-@Composable
 fun SmallIcon(glyph: String, onClick: () -> Unit) {
     val pal = LocalPalette.current
     Box(Modifier.size(34.dp).clip(CircleShape).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
@@ -844,82 +748,196 @@ fun SmallIcon(glyph: String, onClick: () -> Unit) {
 
 // ---- icons -------------------------------------------------------------------------------------
 
-@OptIn(ExperimentalLayoutApi::class)
+// ---- apps (drawer, icons, folders, hidden) -----------------------------------------------------
+
 @Composable
-private fun IconsPage(state: HomeState) {
+private fun AppsPage(state: HomeState) {
+    val pal = state.palette
+    val t = pal.tiles
+    val prefs = state.prefs
+    val cfg = state.iconConfig()
+    val samples = state.apps.take(6)
+    var tab by remember {
+        mutableStateOf(
+            when (state.settingsPage) { "icons" -> 1; "folders" -> 2; "hidden" -> 3; else -> 0 },
+        )
+    }
+    // The icon style that was tapped, shown in a preview that asks Apply or Cancel.
+    var pending by remember { mutableStateOf<String?>(null) }
+    Box(Modifier.fillMaxSize()) {
+        AppPage(
+            "Apps", "${state.apps.size} APPS / ${state.hiddenKeys.size} HIDDEN / ${state.folders.size} FOLDER${if (state.folders.size == 1) "" else "S"}",
+            onBack = { state.settingsPage = "" },
+            nav = {
+                PillNav(listOf("all" to "DRAWER", "palette" to "ICONS", "widget" to "FOLDERS", "search" to "HIDDEN"), tab) { tab = it }
+            },
+        ) {
+            Column(
+                Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                val folderCount = state.folders.size
+                PageHero(
+                    "YOUR APPS", "${state.apps.size} apps",
+                    "${state.hiddenKeys.size} hidden, $folderCount folder${if (folderCount == 1) "" else "s"}",
+                    t[2 % t.size],
+                )
+                when (tab) {
+                    0 -> DrawerBody(state)
+                    1 -> IconsBody(state) { pending = it }
+                    2 -> FoldersBody(state)
+                    else -> HiddenBody(state)
+                }
+            }
+        }
+        val choice = pending
+        if (choice != null) {
+            val label = IconStyles.styles.firstOrNull { it.first == choice }?.second ?: ""
+            Sheet(onDismiss = { pending = null }) {
+                BasicText(label.uppercase(), style = dispStyle(pal.onGround, 22))
+                BasicText("PREVIEW", style = monoStyle(pal.onGround.copy(alpha = 0.6f), 9))
+                CompositionLocalProvider(LocalIconCfg provides IconCfg(choice, prefs.iconShape, prefs.forceIcons, cfg.sig + choice)) {
+                    Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                        samples.forEach { a -> AppIcon(state.icons, a, 48.dp, bg = pal.tiles[kotlin.math.abs(a.key.hashCode()) % pal.tiles.size], ink = pal.ink, line = pal.onGround) }
+                    }
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Pill("CANCEL", pal.onGround.copy(alpha = 0.14f), pal.onGround, Modifier.weight(1f), height = 46) { pending = null }
+                    Pill("APPLY", pal.tiles[0], pal.ink, Modifier.weight(1f), height = 46) {
+                        state.iconSettings { iconStyle = choice }
+                        pending = null
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ColumnScope.DrawerBody(state: HomeState) {
+    val pal = state.palette
+    val t = pal.tiles
+    val prefs = state.prefs
+    val ctx = LocalContext.current
+    val byName = prefs.drawerSort == "alpha" || prefs.drawerSort == "za"
+    Group("DRAWER") {
+        Dropdown(
+            listOf("alpha" to "A TO Z", "za" to "Z TO A", "recent" to "RECENTLY USED", "newest" to "NEWEST FIRST"),
+            prefs.drawerSort, "Sort",
+        ) { prefs.drawerSort = it }
+        Dropdown(listOf("0" to "COMPACT", "1" to "TALL", "2" to "FULL"), prefs.drawerHeight.toString(), "Height") { prefs.drawerHeight = it.toInt() }
+        Dropdown(listOf("0" to "DIMMED WALLPAPER", "1" to "CLEAR WALLPAPER", "2" to "NO WALLPAPER"), prefs.drawerBg.toString(), "Background") { prefs.drawerBg = it.toInt() }
+        Dropdown(listOf("top" to "TOP", "bottom" to "BOTTOM"), prefs.drawerKoma, "Koma apps") { prefs.drawerKoma = it }
+    }
+    Group("OPTIONS") {
+        SwitchRow("Frosted panel", "", prefs.drawerPanel) { prefs.drawerPanel = it }
+        SwitchRow("Search bar", "", prefs.drawerSearch) { prefs.drawerSearch = it }
+        SwitchRow("Section letters", if (byName) "" else "Sorted by name only", prefs.drawerHeaders && byName) { prefs.drawerHeaders = it }
+        SwitchRow("Left-handed", "", prefs.leftHanded) { prefs.leftHanded = it }
+    }
+    Group("LIMITS") {
+        ListRow("App limits", AppLimits.all(ctx).size.let { if (it == 0) "Daily time per app" else "$it set" }, "timer", t[3 % t.size], onClick = { state.settingsPage = "limits" })
+    }
+}
+
+@Composable
+private fun ColumnScope.IconsBody(state: HomeState, onPick: (String) -> Unit) {
     val pal = state.palette
     val prefs = state.prefs
     val ctx = LocalContext.current
     val packs = remember { IconPack.installed(ctx) }
-    val samples = state.apps.take(6)
     val sample = state.apps.firstOrNull { it.pkg.contains("chrome") } ?: state.apps.firstOrNull()
     val cfg = state.iconConfig()
-    // The style row that was tapped, shown in a preview that asks Apply or Cancel.
-    var pending by remember { mutableStateOf<String?>(null) }
-    Box(Modifier.fillMaxSize()) {
-    Page("App icons", "SETTINGS / LOOK", onBack = { state.settingsPage = "" }) {
-        // How icons look right now.
-        Row(
-            Modifier.fillMaxWidth().clip(TileShape).background(pal.tiles[0]).padding(horizontal = 16.dp, vertical = 16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically,
-        ) {
-            samples.forEach { a -> AppIcon(state.icons, a, 44.dp, bg = pal.ink, ink = pal.tiles[0], line = pal.ink) }
-        }
-        Group("STYLE") {
-            IconStyles.styles.forEach { (id, name) ->
-                val on = prefs.iconStyle == id
-                Row(
-                    Modifier.fillMaxWidth().clickable { pending = id }.padding(horizontal = 14.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    CompositionLocalProvider(LocalIconCfg provides IconCfg(id, prefs.iconShape, prefs.forceIcons, cfg.sig + id)) {
-                        AppIcon(state.icons, sample, 44.dp, bg = pal.tiles[0], ink = pal.ink, line = pal.onGround)
-                    }
-                    Spacer(Modifier.width(14.dp))
-                    BasicText(name, style = bodyStyle(pal.onGround, 16, medium = true), modifier = Modifier.weight(1f))
-                    KCheck(on)
+    BasicText("STYLE", style = monoStyle(pal.onGround.copy(alpha = 0.6f), 10))
+    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        IconStyles.styles.forEach { (id, name) ->
+            val on = prefs.iconStyle == id
+            Column(
+                Modifier.width(92.dp).clip(RoundedCornerShape(20.dp))
+                    .background(if (on) pal.tiles[0] else pal.onGround.copy(alpha = 0.1f))
+                    .clickable { onPick(id) }.padding(horizontal = 8.dp, vertical = 12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                CompositionLocalProvider(LocalIconCfg provides IconCfg(id, prefs.iconShape, prefs.forceIcons, cfg.sig + id)) {
+                    if (on) AppIcon(state.icons, sample, 46.dp, bg = pal.ink, ink = pal.tiles[0], line = pal.ink)
+                    else AppIcon(state.icons, sample, 46.dp, bg = pal.tiles[0], ink = pal.ink, line = pal.onGround)
                 }
-            }
-        }
-        Group("SHORTCUT TILES", hint = "The badge behind the icon on shortcuts such as CAM, WEB and PHONE.") {
-            Dropdown(IconStyles.badges, prefs.tileBadge, "Badge shape") { s -> prefs.tileBadge = s }
-        }
-        Group("BLUETOOTH TILE", hint = "How the earbuds, headphones, speaker and other device icons are drawn. Tessera sits on a squircle.") {
-            Dropdown(IconStyles.btIcons, prefs.btIcon, "Device icons") { s -> prefs.btIcon = s }
-        }
-        Group(
-            "OPTIONS",
-            hint = if (packs.isEmpty()) "No icon packs found. Install a Nova, ADW or Lawnchair compatible pack, then pick it here. Apps the pack does not cover use the style above." else null,
-        ) {
-            Dropdown(IconStyles.shapes, prefs.iconShape, "Shape") { s -> state.iconSettings { iconShape = s } }
-            SwitchRow(
-                "Force icons on every app", "Apps that ignore adaptive icons are cut out and restyled, or given a letter mark",
-                prefs.forceIcons,
-            ) { on -> state.iconSettings { forceIcons = on } }
-            Dropdown(listOf("" to "NONE") + packs.map { it.first to it.second.uppercase() }, prefs.iconPack, "Icon pack") { id -> state.iconSettings { iconPack = id } }
-        }
-    }
-    val choice = pending
-    if (choice != null) {
-        val label = IconStyles.styles.firstOrNull { it.first == choice }?.second ?: ""
-        Sheet(onDismiss = { pending = null }) {
-            BasicText(label.uppercase(), style = dispStyle(pal.onGround, 22))
-            BasicText("PREVIEW", style = monoStyle(pal.onGround.copy(alpha = 0.6f), 9))
-            CompositionLocalProvider(LocalIconCfg provides IconCfg(choice, prefs.iconShape, prefs.forceIcons, cfg.sig + choice)) {
-                Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                    samples.forEach { a -> AppIcon(state.icons, a, 48.dp, bg = pal.tiles[kotlin.math.abs(a.key.hashCode()) % pal.tiles.size], ink = pal.ink, line = pal.onGround) }
-                }
-            }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Pill("CANCEL", pal.onGround.copy(alpha = 0.14f), pal.onGround, Modifier.weight(1f), height = 46) { pending = null }
-                Pill("APPLY", pal.tiles[0], pal.ink, Modifier.weight(1f), height = 46) {
-                    state.iconSettings { iconStyle = choice }
-                    pending = null
-                }
+                BasicText(
+                    name, style = bodyStyle(if (on) pal.ink else pal.onGround, 12, medium = true),
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
             }
         }
     }
+    Group("SHAPE AND PACK", hint = if (packs.isEmpty()) "No icon packs found. Install a Nova, ADW or Lawnchair compatible pack to use it here." else null) {
+        if (prefs.iconStyle in IconStyles.shaped) Dropdown(IconStyles.shapes, prefs.iconShape, "Shape") { s -> state.iconSettings { iconShape = s } }
+        Dropdown(listOf("" to "NONE") + packs.map { it.first to it.second.uppercase() }, prefs.iconPack, "Icon pack") { id -> state.iconSettings { iconPack = id } }
+        SwitchRow(
+            "Force icons on every app", "Restyle apps that ignore adaptive icons",
+            prefs.forceIcons,
+        ) { on -> state.iconSettings { forceIcons = on } }
     }
+    Group("OTHER ICONS", hint = "Shortcut tile badges (CAM, WEB, PHONE) and the Bluetooth device icons.") {
+        Dropdown(IconStyles.badges, prefs.tileBadge, "Shortcut badge") { s -> prefs.tileBadge = s }
+        Dropdown(IconStyles.btIcons, prefs.btIcon, "Bluetooth icons") { s -> prefs.btIcon = s }
+    }
+}
+
+@Composable
+private fun ColumnScope.FoldersBody(state: HomeState) {
+    val pal = state.palette
+    val t = pal.tiles
+    fun show(id: String) {
+        state.openFolderId = id
+        state.openDrawer()
+    }
+    Group {
+        if (state.folders.isEmpty()) GroupPad { BasicText("No folders yet.", style = bodyStyle(pal.onGround.copy(alpha = 0.7f), 14)) }
+        state.folders.forEachIndexed { i, f ->
+            val apps = f.items.count { !it.widget }
+            val widgets = f.items.count { it.widget }
+            ListRow(
+                f.name.ifBlank { "Folder" }, "$apps apps" + if (widgets > 0) ", $widgets widgets" else "",
+                "all", t[i % t.size], onClick = { show(f.id) },
+            )
+        }
+        ListRow("New folder", "", "widget", t[0 % t.size], onClick = { show(state.newFolder().id) })
+    }
+}
+
+@Composable
+private fun ColumnScope.HiddenBody(state: HomeState) {
+    val pal = state.palette
+    var q by remember { mutableStateOf("") }
+    val hidden = state.hiddenKeys
+    BasicText(
+        "Hidden apps stay out of the drawer. Search still finds them.",
+        style = bodyStyle(pal.onGround.copy(alpha = 0.7f), 13),
+    )
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(pal.onGround.copy(alpha = 0.12f)).padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Glyph("search", pal.onGround.copy(alpha = 0.7f), 20.dp, 2f)
+        Spacer(Modifier.width(10.dp))
+        Field(q, { q = it }, "Search apps", Modifier.weight(1f))
+    }
+    val list = state.apps.filter { q.isBlank() || it.label.contains(q.trim(), ignoreCase = true) }.sortedBy { it.label.lowercase() }
+    Group {
+        list.forEach { a ->
+            val on = a.key in hidden
+            Row(
+                Modifier.fillMaxWidth().clickable { state.toggleHidden(a.key) }.padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                AppIcon(state.icons, a, 36.dp, bg = pal.tiles[kotlin.math.abs(a.key.hashCode()) % pal.tiles.size], ink = pal.ink, line = pal.onGround)
+                Spacer(Modifier.width(14.dp))
+                BasicText(a.label, style = bodyStyle(pal.onGround, 16, medium = true), maxLines = 1, modifier = Modifier.weight(1f))
+                KToggle(on) { state.toggleHidden(a.key) }
+            }
+        }
+    }
+    if (list.isEmpty()) BasicText("No app matches.", style = bodyStyle(pal.onGround.copy(alpha = 0.7f), 14))
 }
 
 // ---- calendar ----------------------------------------------------------------------------------
@@ -964,30 +982,6 @@ private fun CalendarPage(state: HomeState) {
 
 // ---- app drawer --------------------------------------------------------------------------------
 
-@Composable
-private fun DrawerPage(state: HomeState) {
-    val pal = state.palette
-    val prefs = state.prefs
-    val byName = prefs.drawerSort == "alpha" || prefs.drawerSort == "za"
-    Page("App drawer", "SETTINGS / LOOK", onBack = { state.settingsPage = "" }) {
-        Group("LAYOUT") {
-            SwitchRow("Frosted panel", "", prefs.drawerPanel) { prefs.drawerPanel = it }
-            SwitchRow("Search bar", "", prefs.drawerSearch) { prefs.drawerSearch = it }
-            SwitchRow("Section letters", if (byName) "" else "Only when sorted by name", prefs.drawerHeaders && byName) { prefs.drawerHeaders = it }
-            SwitchRow("Left-handed", "", prefs.leftHanded) { prefs.leftHanded = it }
-        }
-        Group("APPEARANCE") {
-            Dropdown(listOf("0" to "COMPACT", "1" to "TALL", "2" to "FULL"), prefs.drawerHeight.toString(), "Panel height") { prefs.drawerHeight = it.toInt() }
-            Dropdown(listOf("0" to "DIMMED WALLPAPER", "1" to "CLEAR WALLPAPER", "2" to "NO WALLPAPER"), prefs.drawerBg.toString(), "Background") { prefs.drawerBg = it.toInt() }
-            Dropdown(listOf("top" to "AT THE TOP", "bottom" to "AT THE BOTTOM"), prefs.drawerKoma, "Koma Settings and Koma apps") { prefs.drawerKoma = it }
-            Dropdown(
-                listOf("alpha" to "A TO Z", "za" to "Z TO A", "recent" to "RECENTLY USED", "newest" to "NEWEST FIRST"),
-                prefs.drawerSort, "Sort apps",
-            ) { prefs.drawerSort = it }
-        }
-    }
-}
-
 // ---- search ------------------------------------------------------------------------------------
 
 @Composable
@@ -995,24 +989,13 @@ private fun SearchPage(state: HomeState) {
     val pal = state.palette
     val prefs = state.prefs
     val ctx = LocalContext.current
-    val test = remember { androidx.compose.runtime.mutableStateOf("") }
-    fun go() {
-        if (test.value.isNotBlank()) Engines.search(ctx, prefs, test.value.trim())
-    }
     Page("Search", "SETTINGS / HOME", onBack = { state.settingsPage = "" }) {
-        Column(Modifier.fillMaxWidth().clip(TileShape).background(pal.tiles[4 % pal.tiles.size]).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            BasicText("TRY IT / USES ${(Engines.all.firstOrNull { it.first == prefs.engine }?.second?.first ?: "").uppercase()}", style = monoStyle(pal.ink, 10, bold = true))
-            Row(Modifier.fillMaxWidth().clip(CircleShape).background(pal.ink.copy(alpha = 0.12f)).padding(start = 16.dp, end = 6.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                Magnifier(pal.ink, 20.dp)
-                Spacer(Modifier.width(10.dp))
-                Field(test.value, { test.value = it }, "Type something to search", Modifier.weight(1f), style = bodyStyle(pal.ink, 16, medium = true), onDone = { go() })
-                Pill("GO", pal.ink, pal.tiles[4 % pal.tiles.size], height = 36) { go() }
-            }
-        }
+        PageHero("SEARCH ENGINE", Engines.all.firstOrNull { it.first == state.prefs.engine }?.second?.first ?: "Web", "Apps and people first, then the web.", state.palette.tiles[4 % state.palette.tiles.size])
+        SearchPreview(Engines.all.firstOrNull { it.first == prefs.engine }?.second?.first ?: "the web")
         Group("OPENING SEARCH") {
             SwitchRow("Swipe up opens search", "From the bottom edge of the home screen", prefs.homeSearch) { prefs.homeSearch = it }
         }
-        Group("WEB ENGINE", hint = if (prefs.engine == "custom") "%s is replaced by what you type." else null) {
+        Group("WEB ENGINE") {
             Engines.all.forEach { (id, v) ->
                 val on = prefs.engine == id
                 val host = if (id == "custom") "Your own address" else (android.net.Uri.parse(v.second).host ?: "")
@@ -1021,9 +1004,94 @@ private fun SearchPage(state: HomeState) {
                     trailing = { Box(Modifier.size(22.dp)) { if (on) Glyph("check", pal.tiles[0], 22.dp, 3f) } },
                 )
             }
-            if (prefs.engine == "custom") {
-                GroupPad { Field(prefs.customEngine, { prefs.customEngine = it }, "https://example.com/search?q=%s", Modifier.fillMaxWidth()) }
+        }
+        if (prefs.engine == "custom") CustomEngine(prefs)
+    }
+}
+
+private val enginePresets = listOf(
+    "Ecosia" to "https://www.ecosia.org/search?q=%s",
+    "Startpage" to "https://www.startpage.com/do/search?q=%s",
+    "Qwant" to "https://www.qwant.com/?q=%s",
+    "Wikipedia" to "https://en.wikipedia.org/w/index.php?search=%s",
+    "YouTube" to "https://www.youtube.com/results?search_query=%s",
+)
+
+/** The address of your own search engine, with a check that it will work and a preview of the link it makes. */
+@Composable
+private fun CustomEngine(prefs: app.koma.launcher.data.Prefs) {
+    val pal = LocalPalette.current
+    val text = prefs.customEngine.trim()
+    val problem = when {
+        text.isEmpty() -> "ADD AN ADDRESS. UNTIL THEN GOOGLE ANSWERS."
+        !(text.startsWith("https://") || text.startsWith("http://")) -> "THE ADDRESS MUST START WITH HTTPS://"
+        !text.contains("%s") -> "ADD %S WHERE THE SEARCH WORDS GO"
+        else -> null
+    }
+    Group("YOUR ADDRESS", hint = "Write the address of a search results page and put %s where the words you search for should go.") {
+        GroupPad {
+            Row(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(pal.onGround.copy(alpha = 0.08f)).padding(horizontal = 14.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Field(prefs.customEngine, { prefs.customEngine = it }, "https://example.com/search?q=%s", Modifier.weight(1f), style = bodyStyle(pal.onGround, 15, medium = true))
+                if (prefs.customEngine.isNotEmpty()) {
+                    Spacer(Modifier.width(8.dp))
+                    Box(Modifier.size(28.dp).clip(CircleShape).clickable { prefs.customEngine = "" }, contentAlignment = Alignment.Center) {
+                        Glyph("close", pal.onGround.copy(alpha = 0.6f), 16.dp, 2.4f)
+                    }
+                }
             }
+            BasicText(
+                problem ?: "READY",
+                style = monoStyle(if (problem == null) pal.tiles[0] else pal.onGround.copy(alpha = 0.6f), 10, bold = true),
+            )
+            if (problem == null) BasicText(
+                "weather today  >  " + text.replace("%s", android.net.Uri.encode("weather today")),
+                style = bodyStyle(pal.onGround.copy(alpha = 0.7f), 12), maxLines = 3,
+            )
+        }
+        GroupPad {
+            BasicText("START FROM", style = monoStyle(pal.onGround.copy(alpha = 0.55f), 10, bold = true))
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                enginePresets.forEach { (n, u) ->
+                    Box(
+                        Modifier.clip(CircleShape).border(1.5.dp, pal.onGround.copy(alpha = if (text == u) 0.8f else 0.2f), CircleShape)
+                            .clickable { prefs.customEngine = u }.padding(horizontal = 14.dp, vertical = 9.dp),
+                    ) { BasicText(n.uppercase(), style = monoStyle(pal.onGround, 10, bold = true), maxLines = 1) }
+                }
+            }
+        }
+    }
+}
+
+/** What the real search looks like when you open it: suggestion pills over the search bar. Just a picture; nothing in it is tappable. */
+@Composable
+private fun SearchPreview(engine: String) {
+    val pal = LocalPalette.current
+    val face = pal.ground.copy(alpha = 0.96f)
+    val edge = pal.onGround.copy(alpha = 0.14f)
+    Column(Modifier.fillMaxWidth().clip(TileShape).background(Color.Black.copy(alpha = 0.35f)).padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        BasicText("PREVIEW / SEARCHES WITH ${engine.uppercase()}", style = monoStyle(pal.onGround.copy(alpha = 0.6f), 10, bold = true), maxLines = 1)
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf("weather today", "news", "translate", "maps near me").forEach { text ->
+                Row(
+                    Modifier.clip(CircleShape).background(face).border(1.dp, edge, CircleShape).padding(start = 12.dp, end = 16.dp, top = 9.dp, bottom = 9.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Magnifier(pal.onGround.copy(alpha = 0.55f), 14.dp)
+                    Spacer(Modifier.width(8.dp))
+                    BasicText(text, style = bodyStyle(pal.onGround, 15, medium = true), maxLines = 1)
+                }
+            }
+        }
+        Row(
+            Modifier.fillMaxWidth().height(52.dp).clip(RoundedCornerShape(50)).background(face).border(1.dp, edge, RoundedCornerShape(50)).padding(start = 18.dp, end = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Magnifier(pal.onGround.copy(alpha = 0.7f), 20.dp)
+            Spacer(Modifier.width(10.dp))
+            BasicText("Search", style = bodyStyle(pal.onGround.copy(alpha = 0.5f), 17, medium = true))
         }
     }
 }
@@ -1043,6 +1111,7 @@ private fun SystemPage(state: HomeState) {
         }
     }
     Page("System", "SETTINGS / PHONE", onBack = { state.settingsPage = "" }) {
+        PageHero("THIS PHONE", "Access and defaults", "The permissions Koma uses, and the default launcher.", state.palette.tiles[3 % state.palette.tiles.size])
         Group {
             ListRow("Default launcher", "", "all", t[0 % t.size], onClick = { open(Settings.ACTION_HOME_SETTINGS) })
         }
@@ -1055,9 +1124,12 @@ private fun SystemPage(state: HomeState) {
             ListRow("Contacts", "", "users", t[1 % t.size], onClick = { state.request(Manifest.permission.READ_CONTACTS) }, trailing = { Status(state.contactsGranted, "ALLOWED", "ALLOW") })
             ListRow("Call log", "", "phone", t[2 % t.size], onClick = { state.request(Manifest.permission.READ_CALL_LOG) }, trailing = { Status(state.callsGranted, "ALLOWED", "ALLOW") })
         }
+        Group("KOMA") {
+            ListRow("About", versionText(), "info", t[4 % t.size], onClick = { state.settingsPage = "about" })
+        }
         Group("RESET") {
             ListRow("Reset home layout", "Notes and tasks stay", "trash", t[3 % t.size], onClick = { scope.launch { state.resetLayout() } })
         }
-        BasicText("Koma 0.3. Everything stays on your phone.", style = monoStyle(pal.onGround.copy(alpha = 0.5f), 10))
+        BasicText("Everything stays on your phone.", style = monoStyle(pal.onGround.copy(alpha = 0.5f), 10))
     }
 }

@@ -13,6 +13,10 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -48,22 +52,14 @@ fun KomaApps(state: HomeState) {
                 BasicText("BUILT IN / ${apps.size} APPS", style = monoStyle(pal.onGround.copy(alpha = 0.55f), 10), maxLines = 1)
             }
         }
-        LazyVerticalGrid(
-            GridCells.Fixed(if (land) 4 else 2), Modifier.fillMaxSize(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp),
+        Column(
+            Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            items(apps.size) { i ->
-                val a = apps[i]
-                val c = pal.tiles[i % pal.tiles.size]
-                Column(
-                    Modifier.fillMaxWidth().aspectRatio(if (land) 1.5f else 1.1f).clip(TileShape).background(c).clickable { a.go() }.padding(18.dp),
-                    verticalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Glyph(a.glyph, pal.ink, 28.dp, 1.9f)
-                    Column {
-                        BasicText(a.name, style = dispStyle(pal.ink, 22), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        BasicText(a.sub.uppercase(), style = label(pal.ink.copy(alpha = 0.7f), 9.sp), maxLines = 1)
-                    }
+            PageHero("BUILT IN", "Koma apps", "Made for the launcher. Nothing leaves your phone.", pal.tiles[0])
+            Group {
+                apps.forEachIndexed { i, a ->
+                    ListRow(a.name, glyph = a.glyph, tint = pal.tiles[(i + 1) % pal.tiles.size], onClick = { a.go() })
                 }
             }
         }

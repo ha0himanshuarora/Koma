@@ -51,6 +51,8 @@ object IconStyles {
     )
     /** How the device icon on the Bluetooth tile is drawn. */
     val btIcons = listOf("outline" to "OUTLINE", "solid" to "SOLID", "duotone" to "DUOTONE", "tessera" to "TESSERA")
+    /** Styles that draw the icon inside the chosen shape. The rest (original, sticker, dots, outline, chroma, watercolor) ignore it. */
+    val shaped = setOf("koma", "material", "bright", "marble", "stellar")
     val shapes = listOf("circle" to "CIRCLE", "squircle" to "SQUIRCLE", "rounded" to "ROUNDED", "teardrop" to "TEARDROP", "square" to "SQUARE")
 }
 
@@ -526,12 +528,18 @@ class IconCache(private val ctx: Context, private val sizePx: Int) {
                 c.drawCircle(f * 0.72f, f * 0.82f, f * 0.02f, star)
             }
             "chroma" -> {
-                fillShape(0xFF101114.toInt())
+                // Like outline, with no backing: just the coloured line.
                 val col = tone(dom, 0.85f, 1f)
-                if (mask != null) {
-                    drawIn(c, tint(mask, withAlpha(col, 60)), f, gs * 0.9f)
-                    c.drawBitmap(ring(mask, col, f, gs * 0.9f, f * 0.03f), 0f, 0f, null)
-                } else letter(col)
+                if (mask == null) {
+                    val st = Paint(Paint.ANTI_ALIAS_FLAG)
+                    st.style = Paint.Style.STROKE
+                    st.strokeWidth = f * 0.035f
+                    st.color = col
+                    c.drawPath(shape, st)
+                    letter(col)
+                } else {
+                    c.drawBitmap(ring(mask, col, f, gs, f * 0.028f), 0f, 0f, null)
+                }
             }
             else -> onShape(spec.bg, spec.ink)
         }
