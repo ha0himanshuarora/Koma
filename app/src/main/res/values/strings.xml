@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Koma</string>
+    <string name="focus_service_desc">Used by Focus Lock to send you back to Koma when you open an app that is not allowed during a focus session. Koma does not read what is on screen. It can also lock the screen when you double tap an empty part of the home screen, if you turn that on.</string>
+</resources>
