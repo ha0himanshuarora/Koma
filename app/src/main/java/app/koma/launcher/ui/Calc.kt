@@ -412,25 +412,28 @@ fun CalcTile(w: Int, h: Int, bg: Color, ink: Color, onOpen: () -> Unit) {
     val m = remember { sharedCalc(ctx) }
     val live = if (m.justEval || m.err.isNotEmpty()) null else m.result()
     val hasOp = m.expr.any { it in "+−×÷^%!" } && !(m.expr.startsWith("−") && m.expr.drop(1).all { it.isDigit() || it == '.' })
-    val big = if (m.justEval) CalcEngine.format(m.ans) else m.expr.ifEmpty { "0" }
+    val big = if (m.justEval) CalcEngine.format(m.ans) else CalcEngine.pretty(m.expr).ifEmpty { "0" }
     val last = m.history.firstOrNull()
     val small = when {
         m.err.isNotEmpty() -> m.err
-        m.justEval -> m.shown + " ="
+        m.justEval -> CalcEngine.pretty(m.shown) + " ="
         live != null && hasOp -> "= " + CalcEngine.format(live)
-        m.expr.isEmpty() && last != null -> last.first + " = " + last.second
+        m.expr.isEmpty() && last != null -> CalcEngine.pretty(last.first) + " = " + last.second
         else -> ""
     }
     val split = h <= 2 && w >= 3
+    // 2x2: a one-line display with its own backspace, and all sixteen keys below it.
+    val tiny = w <= 2 && h <= 2
     BoxWithConstraints(Modifier.fillMaxSize().clip(TileShape).background(bg)) {
-        val pad = if (maxWidth > 250.dp) 14.dp else 10.dp
-        val gap = 4.dp
-        val rowsN = if (split) 4 else 5
+        val pad = if (tiny) 8.dp else if (maxWidth > 250.dp) 14.dp else 10.dp
+        val gap = if (tiny) 3.dp else 4.dp
+        val tinyDisplay = 42.dp
+        val rowsN = if (split || tiny) 4 else 5
         val keysW = if (split) (maxWidth - pad * 2) * 0.58f else maxWidth - pad * 2
-        val keysH = if (split) maxHeight - pad * 2 else (maxHeight - pad * 2) * 0.64f
+        val keysH = if (split) maxHeight - pad * 2 else if (tiny) maxHeight - pad * 2 - tinyDisplay - gap else (maxHeight - pad * 2) * 0.64f
         val keyH = (keysH - gap * (rowsN - 1)) / rowsN
         val keyW = (keysW - gap * 3) / 4
-        val ts = (minOf(keyH.value, keyW.value) * 0.42f).coerceIn(13f, 22f).toInt()
+        val ts = (minOf(keyH.value, keyW.value) * if (tiny) 0.5f else 0.42f).coerceIn(if (tiny) 11f else 13f, 22f).toInt()
 
         @Composable
         fun RowScope.K(label: String, kind: Int = 0, glyph: String? = null, onLong: (() -> Unit)? = null, onClick: () -> Unit) {
@@ -464,7 +467,7 @@ fun CalcTile(w: Int, h: Int, bg: Color, ink: Color, onOpen: () -> Unit) {
 
         @Composable
         fun Keys(mod: Modifier) {
-            val rows = if (split) listOf(
+            val rows = if (split || tiny) listOf(
                 listOf("7", "8", "9", "÷"), listOf("4", "5", "6", "×"), listOf("1", "2", "3", "−"), listOf("0", ".", "=", "+"),
             ) else listOf(
                 listOf("AC", "back", "%", "÷"), listOf("7", "8", "9", "×"), listOf("4", "5", "6", "−"),
@@ -490,7 +493,29 @@ fun CalcTile(w: Int, h: Int, bg: Color, ink: Color, onOpen: () -> Unit) {
             }
         }
 
-        if (split) {
+        if (tiny) {
+            Column(Modifier.fillMaxSize().padding(pad), verticalArrangement = Arrangement.spacedBy(gap)) {
+                Row(Modifier.fillMaxWidth().height(tinyDisplay), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    // Backspace lives beside the number; hold it to clear everything.
+                    Box(
+                        Modifier.size(26.dp).clip(CircleShape).background(ink.copy(alpha = 0.1f))
+                            .combinedClickable(onLongClick = { m.clear() }, onClick = { m.back() }),
+                        contentAlignment = Alignment.Center,
+                    ) { Glyph("backspace", ink, 14.dp, 2.2f) }
+                    Column(
+                        Modifier.weight(1f).fillMaxHeight().combinedClickable(
+                            onLongClick = { copy(ctx, if (m.justEval) CalcEngine.format(m.ans, 15, false) else m.expr) },
+                            onClick = onOpen,
+                        ),
+                        verticalArrangement = Arrangement.Bottom, horizontalAlignment = Alignment.End,
+                    ) {
+                        if (small.isNotEmpty()) BasicText(small, style = monoStyle(ink.copy(alpha = 0.6f), 9), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        FitText(big, ink, 24, Modifier.fillMaxWidth().weight(1f), min = 10)
+                    }
+                }
+                Keys(Modifier.fillMaxWidth().weight(1f))
+            }
+        } else if (split) {
             Row(Modifier.fillMaxSize().padding(pad), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Column(Modifier.weight(0.42f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(gap)) {
                     Display(Modifier.weight(1f).fillMaxWidth())
@@ -656,10 +681,10 @@ private fun CalcPad(m: CalcModel, sci: Boolean) {
     val ctx = LocalContext.current
     val live = if (m.justEval || m.err.isNotEmpty()) null else m.result()
     val hasOp = m.expr.any { it in "+−×÷^%!" || it.isLetter() || it == '√' || it == '∛' || it == '(' } && !(m.expr.startsWith("−") && m.expr.drop(1).all { it.isDigit() || it == '.' })
-    val big = if (m.justEval) CalcEngine.format(m.ans) else m.expr.ifEmpty { "0" }
+    val big = if (m.justEval) CalcEngine.format(m.ans) else CalcEngine.pretty(m.expr).ifEmpty { "0" }
     val small = when {
         m.err.isNotEmpty() -> m.err
-        m.justEval -> m.shown + " ="
+        m.justEval -> CalcEngine.pretty(m.shown) + " ="
         live != null && hasOp -> "= " + CalcEngine.format(live)
         else -> ""
     }
@@ -1093,7 +1118,7 @@ private fun HistoryPage(m: CalcModel, onClose: () -> Unit) {
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(Modifier.weight(1f)) {
-                            BasicText(e, style = monoStyle(pal.onGround.copy(alpha = 0.55f), 12), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            BasicText(CalcEngine.pretty(e), style = monoStyle(pal.onGround.copy(alpha = 0.55f), 12), maxLines = 1, overflow = TextOverflow.Ellipsis)
                             BasicText("= $r", style = dispStyle(pal.onGround, 28), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
                         }
                         Glyph("chev", pal.onGround.copy(alpha = 0.35f), 20.dp, 2f)

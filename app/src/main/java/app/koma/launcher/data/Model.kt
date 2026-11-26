@@ -35,7 +35,7 @@ enum class Kind(val title: String, val desc: String, val sizes: List<Pair<Int, I
     TIMER("Timer", "A countdown that rings when it's done.", listOf(2 to 1, 2 to 2, 1 to 1, 3 to 3, 4 to 2, 3 to 2, 4 to 1, 4 to 4)),
     STOPWATCH("Stopwatch", "Tap to start, tap to stop.", listOf(2 to 1, 2 to 2, 1 to 1, 3 to 3, 4 to 2, 3 to 2, 4 to 1, 4 to 4)),
     ALARMS("Alarms", "Your next alarm and every alarm that is on.", listOf(2 to 2, 4 to 2, 2 to 1, 4 to 1, 1 to 1, 4 to 4, 3 to 3, 3 to 2)),
-    CALC("Calculator", "A shortcut to the calculator, or a working keypad right on the home screen in the larger sizes.", listOf(1 to 1, 4 to 4, 4 to 3, 3 to 3, 3 to 4, 2 to 4, 2 to 3, 4 to 2, 3 to 2)),
+    CALC("Calculator", "A shortcut to the calculator, or a working keypad right on the home screen in the larger sizes.", listOf(1 to 1, 2 to 2, 4 to 4, 4 to 3, 3 to 3, 3 to 4, 2 to 4, 2 to 3, 4 to 2, 3 to 2)),
     KAPPS("Koma apps", "Clock, Focus, Notes, Tasks and Calculator in one place.", listOf(1 to 1)),
     SPACE("Gap", "Leave some room so the tiles below stay put.", listOf(1 to 1, 2 to 1, 4 to 1, 1 to 2, 2 to 2, 4 to 2, 4 to 3, 4 to 4)),
 }

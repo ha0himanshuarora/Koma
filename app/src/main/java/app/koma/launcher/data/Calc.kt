@@ -35,6 +35,12 @@ object CalcEngine {
 
     /** The number as text, 12 digits, switching to 1.5E20 style for very big and very small values. */
     fun format(v: BigDecimal, digits: Int = 12, group: Boolean = true): String {
+        // Whole numbers up to 18 digits are shown in full, 100,000,000,000,000 and so on, never rounded or turned into 1E14.
+        val w = v.stripTrailingZeros()
+        if (w.signum() != 0 && w.scale() <= 0 && w.precision() - w.scale() <= 18) {
+            val d = w.abs().toPlainString()
+            return (if (w.signum() < 0) "−" else "") + if (group) groupDigits(d) else d
+        }
         val r = v.round(MathContext(digits)).stripTrailingZeros()
         if (r.signum() == 0) return "0"
         val exp = r.precision() - r.scale() - 1
@@ -49,8 +55,19 @@ object CalcEngine {
         return (if (r.signum() < 0) "−" else "") + g + frac
     }
 
+    /** 1234567 as 1,234,567. */
+    fun groupDigits(whole: String): String = whole.reversed().chunked(3).joinToString(",").reversed()
+
+    private val numberRun = Regex("(?<![\\d.])(\\d+)(\\.\\d*)?|\\.\\d+")
+
+    /** An expression as shown on screen: every number gets thousands separators as it is typed, 1234+5 as 1,234+5. */
+    fun pretty(expr: String): String =
+        numberRun.replace(expr) { m -> if (m.groups[1] == null) m.value else groupDigits(m.groupValues[1]) + m.groupValues[2] }
+
     /** The number as it goes back into the expression after "=". */
     fun plain(v: BigDecimal): String {
+        val w = v.stripTrailingZeros()
+        if (w.signum() != 0 && w.scale() <= 0 && w.precision() - w.scale() <= 18) return w.toPlainString().replace('-', '−')
         val r = v.round(MathContext(15)).stripTrailingZeros()
         return (if (r.signum() == 0) BigDecimal.ZERO else r).toPlainString().replace('-', '−')
     }
@@ -240,7 +257,7 @@ object CalcEngine {
     private fun factorial(v: BigDecimal): BigDecimal {
         if (v.signum() < 0 || v.stripTrailingZeros().scale() > 0) throw CalcError("Whole numbers only")
         val n = v.toInt()
-        if (n > 1000) throw CalcError("Too large")
+        if (n > 1000) throw CalcError("Limit exceeded")
         var r = BigInteger.ONE
         for (k in 2..n) r = r.multiply(BigInteger.valueOf(k.toLong()))
         return BigDecimal(r)
