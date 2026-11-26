@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.CornerSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
@@ -42,6 +43,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.text.drawText
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.asImageBitmap
@@ -70,6 +77,7 @@ import androidx.compose.ui.text.font.FontSynthesis
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.coerceIn
 import androidx.compose.ui.unit.dp
@@ -181,15 +189,7 @@ internal fun ToneFit(
     modifier: Modifier = Modifier, lines: Int = 1, align: Alignment = Alignment.CenterStart, firstGroup: Int = 0,
 ) {
     if (tone == "outline") {
-        Box(modifier) {
-            FitText(toneText(text, tone, ink, strokePx * 2f, firstGroup), style, Modifier.fillMaxSize(), lines, align)
-            val fill = buildAnnotatedString {
-                text.forEach { ch ->
-                    if (ch.isDigit()) append(ch) else withStyle(SpanStyle(color = Color.Transparent)) { append(ch) }
-                }
-            }
-            FitText(fill, style.copy(color = bg.opaque()), Modifier.fillMaxSize(), lines, align)
-        }
+        OutlineFit(text, style, ink, strokePx, modifier, lines, align) { _, c -> c.isDigit() }
     } else {
         FitText(toneText(text, tone, ink, strokePx, firstGroup), style, modifier, lines, align)
     }
@@ -327,8 +327,16 @@ private fun tight(font: FontFamily, color: Color, tracking: Float = -0.03f, line
 )
 
 @Composable
-fun ClockTile(w: Int, h: Int, bg: Color, ink: Color, style: String, seconds: Boolean = false) {
+fun ClockTile(w: Int, h: Int, bg: Color, ink0: Color, style: String, seconds: Boolean = false, photo: String = "", photoDesign: String = "") {
     val pal = LocalPalette.current
+    // "Backdrop" design: the photo fills the whole tile and the time sits on top, in black or white to suit the picture.
+    val cover = style == "poster" && photoDesign == "cover" && photo.isNotBlank() && w >= 2
+    val ctx = LocalContext.current
+    val backdrop by produceState<ImageBitmap?>(null, photo, cover) {
+        value = if (cover) withContext(Dispatchers.IO) { decodePhoto(ctx, photo) } else null
+    }
+    val backdropLight = remember(backdrop) { backdrop?.let { isLightImage(it) } }
+    val ink = if (cover && backdropLight != null) (if (backdropLight) Color(0xFF111111) else Color(0xFFFFFFFF)) else ink0
     val live = style == "analog" || style == "mono" || seconds
     val now by rememberTicker(live)
     val is24 = app.koma.launcher.data.TimeFmt.is24()
@@ -344,7 +352,14 @@ fun ClockTile(w: Int, h: Int, bg: Color, ink: Color, style: String, seconds: Boo
     val tone = Fonts.clockTone
     val strokePx = with(density) { 2.dp.toPx() }
     val timeStyle = if (style == "mono") tight(Fonts.Mono, ink, -0.04f).copy(fontWeight = FontWeight.Bold) else tight(display, ink)
-    BoxWithConstraints(Modifier.fillMaxSize().clip(TileShape).background(bg).padding(pad)) {
+    Box(Modifier.fillMaxSize().clip(TileShape).background(bg)) {
+    val shot = backdrop
+    if (cover && shot != null) {
+        Image(bitmap = shot, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+        // A wash in the opposite colour to the text, so text stays readable on busy or mixed pictures.
+        Box(Modifier.fillMaxSize().background(if (backdropLight == true) Color.White.copy(alpha = 0.5f) else Color.Black.copy(alpha = 0.5f)))
+    }
+    BoxWithConstraints(Modifier.fillMaxSize().padding(pad)) {
         val boxH = maxHeight
         when {
             // 1x1: time only.
@@ -375,16 +390,13 @@ fun ClockTile(w: Int, h: Int, bg: Color, ink: Color, style: String, seconds: Boo
             style == "words" -> {
                 val lines = wordLines(now)
                 val stroke = with(density) { 1.5.dp.toPx() }
-                val text = buildAnnotatedString {
-                    lines.forEachIndexed { i, line ->
-                        if (i > 0) append("\n")
-                        if (lines.size == 3 && i == 1) withStyle(SpanStyle(drawStyle = Stroke(width = stroke, join = StrokeJoin.Round))) { append(line) }
-                        else append(line)
-                    }
-                }
+                val text = lines.joinToString("\n")
+                // The middle word of a three-line time is the outlined one.
+                val ringFrom = if (lines.size == 3) lines[0].length + 1 else -1
+                val ringTo = if (lines.size == 3) ringFrom + lines[1].length else -1
                 Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     BasicText("IT IS", style = label(ink))
-                    FitText(text, tight(display, ink, -0.02f, 1.0f), Modifier.weight(1f).fillMaxWidth(), lines = lines.size, align = Alignment.CenterStart)
+                    OutlineFit(text, tight(display, ink, -0.02f, 1.0f), ink, stroke, Modifier.weight(1f).fillMaxWidth(), lines.size, Alignment.CenterStart) { i, _ -> i in ringFrom until ringTo }
                 }
             }
             style == "flip" -> Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -643,27 +655,184 @@ fun ClockTile(w: Int, h: Int, bg: Color, ink: Color, style: String, seconds: Boo
             else -> {
                 val big = w >= 3 && h >= 2
                 val stroke = with(density) { (if (big) 3.dp else 2.dp).toPx() }
-                val text = buildAnnotatedString {
-                    append(hh)
-                    append("\n")
-                    withStyle(SpanStyle(drawStyle = Stroke(width = stroke, join = StrokeJoin.Round))) { append(mm) }
-                    if (seconds) append("\n$ss")
-                }
-                Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    if (big) {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
-                            BasicText(
-                                now.format(DateTimeFormatter.ofPattern("EEE dd.MM", Locale.getDefault())).uppercase() + "\nLOCAL TIME",
-                                style = label(ink, 11.sp),
-                            )
-                            Glyph("arrow", ink, 32.dp, strokeWidth = 3f)
+                // With a photo, the time keeps the left side and the picture sits beside it. Plain posters are unchanged.
+                val pic = style == "poster" && photo.isNotBlank() && w >= 2 && !cover
+                Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    if (pic && photoDesign == "left") ClockPhoto(photo, ink, photoDesign, Modifier.weight(0.8f).fillMaxHeight())
+                    Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        if (big && !pic) {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
+                                BasicText(
+                                    now.format(DateTimeFormatter.ofPattern("EEE dd.MM", Locale.getDefault())).uppercase() + "\nLOCAL TIME",
+                                    style = label(ink, 11.sp),
+                                )
+                                Glyph("arrow", ink, 32.dp, strokeWidth = 3f)
+                            }
                         }
+                        OutlineFit(
+                            if (seconds) "$hh\n$mm\n$ss" else "$hh\n$mm", tight(display, ink, -0.01f, 0.86f), ink, stroke, Modifier.weight(1f).fillMaxWidth(),
+                        ) { i, _ -> i in (hh.length + 1) until (hh.length + 1 + mm.length) }
+                        if (!big || pic) BasicText(date, style = label(ink))
                     }
-                    FitText(text, tight(display, ink, -0.05f, 0.86f), Modifier.weight(1f).fillMaxWidth(), lines = if (seconds) 3 else 2, align = Alignment.CenterStart)
-                    if (!big) BasicText(date, style = label(ink))
+                    if (pic && photoDesign != "left") ClockPhoto(photo, ink, photoDesign, Modifier.weight(if (w >= 3) 0.8f else 0.7f).fillMaxHeight())
                 }
             }
         }
+    }
+    }
+}
+
+/** Where each line of an outlined text sits, measured with a plain Paint so the drawing below is predictable. */
+private class OutlineLook(val lines: List<String>, val paint: android.graphics.Paint, val lh: Float, val base: Float, val width: Float, val height: Float)
+
+private fun outlineLook(text: String, style: TextStyle, tf: android.graphics.Typeface, sizePx: Float, density: Density): OutlineLook {
+    val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+    p.typeface = tf
+    p.textSize = sizePx
+    val ls = style.letterSpacing
+    p.letterSpacing = if (ls.isEm) ls.value else if (ls.isSp) with(density) { ls.toPx() } / sizePx else 0f
+    val fm = p.fontMetrics
+    val lhs = style.lineHeight
+    val lh = if (lhs.isEm) lhs.value * sizePx else if (lhs.isSp) with(density) { lhs.toPx() } else fm.descent - fm.ascent
+    val bounds = android.graphics.Rect()
+    p.getTextBounds("0H", 0, 2, bounds)
+    val cap = -bounds.top.toFloat()
+    // With a set line height the digits are centred in their line; otherwise they sit on the font's own baseline.
+    val base = if (lhs.isEm || lhs.isSp) lh / 2f + cap / 2f else -fm.ascent
+    val lines = text.split('\n')
+    return OutlineLook(lines, p, lh, base, lines.maxOf { p.measureText(it) }, lh * lines.size)
+}
+
+/**
+ * Draws the text into a bitmap: the characters in [mask] as a ring (stroke, then the inside cleared) and the rest solid.
+ * Clearing the inside of a stroked glyph leaves one clean ring even where the font builds a digit from overlapping
+ * strokes, and it leaves transparency, so a photo behind the text shows through.
+ */
+private fun renderOutline(look: OutlineLook, mask: BooleanArray, ink: Color, stroke: Float, pad: Int): android.graphics.Bitmap {
+    val bmp = android.graphics.Bitmap.createBitmap(
+        kotlin.math.ceil(look.width).toInt() + 2 * pad, kotlin.math.ceil(look.height).toInt() + 2 * pad, android.graphics.Bitmap.Config.ARGB_8888,
+    )
+    val c = android.graphics.Canvas(bmp)
+    val col = ink.toArgb()
+    val ring = android.graphics.Paint(look.paint).apply {
+        style = android.graphics.Paint.Style.STROKE
+        strokeWidth = stroke * 2f
+        strokeJoin = android.graphics.Paint.Join.ROUND
+        color = col
+    }
+    val clear = android.graphics.Paint(look.paint).apply {
+        style = android.graphics.Paint.Style.FILL
+        xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.CLEAR)
+    }
+    val fill = android.graphics.Paint(look.paint).apply {
+        style = android.graphics.Paint.Style.FILL
+        color = col
+    }
+    class Ch(val s: String, val x: Float, val y: Float, val ring: Boolean)
+    val chars = ArrayList<Ch>()
+    var idx = 0
+    look.lines.forEachIndexed { li, line ->
+        val y = pad + li * look.lh + look.base
+        line.forEachIndexed { ci, ch ->
+            if (ch != ' ') chars += Ch(ch.toString(), pad + look.paint.measureText(line, 0, ci), y, mask.getOrElse(idx + ci) { false })
+        }
+        idx += line.length + 1
+    }
+    chars.filter { it.ring }.forEach { c.drawText(it.s, it.x, it.y, ring) }
+    chars.forEach { c.drawText(it.s, it.x, it.y, clear) }
+    chars.filter { !it.ring }.forEach { c.drawText(it.s, it.x, it.y, fill) }
+    return bmp
+}
+
+@Composable
+private fun rememberTypeface(style: TextStyle): android.graphics.Typeface {
+    val resolver = androidx.compose.ui.platform.LocalFontFamilyResolver.current
+    return remember(style.fontFamily, style.fontWeight) {
+        resolver.resolve(
+            style.fontFamily ?: FontFamily.Default, style.fontWeight ?: FontWeight.Normal,
+            androidx.compose.ui.text.font.FontStyle.Normal, FontSynthesis.None,
+        ).value as? android.graphics.Typeface ?: android.graphics.Typeface.DEFAULT
+    }
+}
+
+@Composable
+private fun OutlineAt(
+    text: String, style: TextStyle, tf: android.graphics.Typeface, sizePx: Float, ink: Color, stroke: Float,
+    modifier: Modifier, outlined: (Int, Char) -> Boolean,
+) {
+    val density = LocalDensity.current
+    val look = remember(text, style.letterSpacing, style.lineHeight, tf, sizePx, density.density) { outlineLook(text, style, tf, sizePx, density) }
+    val mask = BooleanArray(text.length) { outlined(it, text[it]) }
+    val key = String(CharArray(mask.size) { if (mask[it]) '1' else '0' })
+    val pad = kotlin.math.ceil(stroke).toInt() + 1
+    val img = remember(look, key, ink, stroke) { renderOutline(look, mask, ink, stroke, pad).asImageBitmap() }
+    Box(modifier.size(with(density) { look.width.toDp() }, with(density) { look.height.toDp() })) {
+        Image(img, null, Modifier.requiredSize(with(density) { img.width.toDp() }, with(density) { img.height.toDp() }), contentScale = ContentScale.FillBounds)
+    }
+}
+
+/** Text where the characters picked by [outlined] are a clean outline [stroke] px wide and the rest are solid. */
+@Composable
+internal fun OutlineText(
+    text: String, style: TextStyle, ink: Color, stroke: Float, modifier: Modifier = Modifier,
+    outlined: (Int, Char) -> Boolean = { _, _ -> true },
+) {
+    val density = LocalDensity.current
+    OutlineAt(text, style, rememberTypeface(style), with(density) { style.fontSize.toPx() }, ink, stroke, modifier, outlined)
+}
+
+/** [OutlineText] sized to fill its box, like [FitText]. [lines] is kept for symmetry; the lines come from the text. */
+@Composable
+internal fun OutlineFit(
+    text: String, style: TextStyle, ink: Color, stroke: Float, modifier: Modifier = Modifier, lines: Int = 1,
+    align: Alignment = Alignment.CenterStart, outlined: (Int, Char) -> Boolean = { _, _ -> true },
+) {
+    val density = LocalDensity.current
+    val tf = rememberTypeface(style)
+    BoxWithConstraints(modifier, contentAlignment = align) {
+        val mw = constraints.maxWidth
+        val mh = constraints.maxHeight
+        val fsPx = remember(text, style, tf, mw, mh, density.density, stroke) {
+            var lo = 6f
+            var hi = maxOf(mh.toFloat() * 1.3f, 12f)
+            repeat(13) {
+                val mid = (lo + hi) / 2f
+                val l = outlineLook(text, style, tf, mid, density)
+                if (l.width <= mw - 2 * stroke && l.height <= mh - 2 * stroke) lo = mid else hi = mid
+            }
+            lo
+        }
+        OutlineAt(text, style, tf, fsPx, ink, stroke, Modifier, outlined)
+    }
+}
+
+/** True when a picture is mostly light, so dark text reads better on it. */
+private fun isLightImage(img: ImageBitmap): Boolean {
+    val small = android.graphics.Bitmap.createScaledBitmap(img.asAndroidBitmap(), 16, 16, true)
+    var sum = 0.0
+    for (y in 0 until 16) for (x in 0 until 16) sum += Color(small.getPixel(x, y)).luminance()
+    return sum / 256 > 0.5
+}
+
+/** How the picture beside a poster clock is cut and where it sits. */
+internal val clockPhotoDesigns = listOf("card" to "CARD", "left" to "CARD LEFT", "arch" to "ARCH", "cover" to "BACKDROP")
+
+/** The picture beside a poster clock, cropped to fill its shape. */
+@Composable
+private fun ClockPhoto(uri: String, ink: Color, design: String, modifier: Modifier) {
+    val ctx = LocalContext.current
+    val bmp by produceState<ImageBitmap?>(null, uri) {
+        value = withContext(Dispatchers.IO) { decodePhoto(ctx, uri) }
+    }
+    val b = bmp
+    val shape = when (design) {
+        "arch" -> RoundedCornerShape(topStart = CornerSize(50), topEnd = CornerSize(50), bottomEnd = CornerSize(14.dp), bottomStart = CornerSize(14.dp))
+        else -> RoundedCornerShape(18.dp)
+    }
+    val box = Modifier.fillMaxSize()
+    Box(modifier, contentAlignment = Alignment.Center) {
+        if (b != null) Image(bitmap = b, contentDescription = null, contentScale = ContentScale.Crop, modifier = box.clip(shape))
+        else Box(box.clip(shape).background(ink.copy(alpha = 0.14f)), contentAlignment = Alignment.Center) { Glyph("pics", ink, 24.dp, 2f) }
     }
 }
 
@@ -1222,6 +1391,7 @@ fun MusicTile(
     now: app.koma.launcher.data.NowPlaying? = null,
     onSeek: (Long) -> Unit = {},
     style: String = "tape",
+    design: String = "",
 ) {
     val pal = LocalPalette.current
     val cassetteBody = pal.tiles[0]
@@ -1229,7 +1399,7 @@ fun MusicTile(
     val cassetteLabel = pal.tiles[4 % pal.tiles.size]
     Box(Modifier.fillMaxSize().clip(TileShape).background(bg)) {
         when {
-            w >= 2 && h >= 2 && style != "tape" -> MusicStyled(style, w, bg, ink, title, artist, playing, now, onToggle, onNext, onPrevious, onSeek)
+            w >= 2 && h >= 2 && style != "tape" -> MusicStyled(style, design, w, bg, ink, title, artist, playing, now, onToggle, onNext, onPrevious, onSeek)
             w >= 4 && h >= 2 -> Row(Modifier.fillMaxSize().padding(14.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 Cassette(Modifier.fillMaxHeight().weight(1f), cassetteBody, cassetteStripe, cassetteLabel, ink)
                 Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.SpaceBetween) {
@@ -1461,12 +1631,18 @@ private fun ProgressRing(now: app.koma.launcher.data.NowPlaying?, playing: Boole
 /** The alternative looks for a music tile of 2x2 or more. The tape look is in [MusicTile] itself. */
 @Composable
 private fun MusicStyled(
-    style: String, w: Int, bg: Color, ink: Color, title: String, artist: String, playing: Boolean,
+    style: String, design: String, w: Int, bg: Color, ink0: Color, title: String, artist: String, playing: Boolean,
     now: app.koma.launcher.data.NowPlaying?, onToggle: () -> Unit, onNext: () -> Unit, onPrevious: () -> Unit, onSeek: (Long) -> Unit,
 ) {
     val pal = LocalPalette.current
     val wide = w >= 4
-    val ob = bg.opaque()
+    // Backdrop design: the cover art fills the tile and the text turns black or white to suit it.
+    val photoArt = now?.art
+    val backdrop = style == "poster" && design == "cover" && photoArt != null
+    val light = remember(photoArt) { photoArt?.let { isLightImage(it.asImageBitmap()) } }
+    val ink = if (backdrop && light != null) (if (light) Color(0xFF111111) else Color(0xFFFFFFFF)) else ink0
+    // Solid so the play button's glyph keeps its contrast; the scrim below evens out busy pictures.
+    val ob = if (backdrop) (if (light == true) Color.White else Color(0xFF111111)) else bg.opaque()
     val status = if (playing) "NOW PLAYING" else "PAUSED"
     @Composable
     fun controls(big: Boolean, fg: Color = ink, bgc: Color = ob) {
@@ -1482,6 +1658,12 @@ private fun MusicStyled(
             BasicText(title.uppercase(), style = display(titleSize.sp, ink, (-0.01).em, 1f), maxLines = lines, overflow = TextOverflow.Ellipsis)
             BasicText(artist.uppercase(), style = label(ink, 10.sp), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 3.dp))
         }
+    }
+    Box(Modifier.fillMaxSize()) {
+    if (backdrop && photoArt != null) {
+        Image(photoArt.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        // A wash in the opposite colour to the text, so text stays readable on busy or mixed pictures.
+        Box(Modifier.fillMaxSize().background(if (light == true) Color.White.copy(alpha = 0.5f) else Color.Black.copy(alpha = 0.5f)))
     }
     when (style) {
         "vinyl" -> if (wide) {
@@ -1529,29 +1711,35 @@ private fun MusicStyled(
         }
         "poster" -> {
             val art = now?.art
+            val shape = if (design == "arch") RoundedCornerShape(topStart = CornerSize(50), topEnd = CornerSize(50), bottomEnd = CornerSize(14.dp), bottomStart = CornerSize(14.dp)) else RoundedCornerShape(14.dp)
+            val left = design == "left"
+            // The backdrop design draws the art behind everything, so there is no separate cover.
             val cover: @Composable (Modifier) -> Unit = { m ->
-                if (art != null) Image(art.asImageBitmap(), null, m.aspectRatio(1f).clip(RoundedCornerShape(14.dp)), contentScale = ContentScale.Crop)
-                else Box(m.aspectRatio(1f).clip(RoundedCornerShape(14.dp)).background(ink.copy(alpha = 0.14f)), contentAlignment = Alignment.Center) { Glyph("music", ink, 26.dp, 2f) }
+                if (backdrop) Unit
+                else if (art != null) Image(art.asImageBitmap(), null, m.aspectRatio(1f).clip(shape), contentScale = ContentScale.Crop)
+                else Box(m.aspectRatio(1f).clip(shape).background(ink.copy(alpha = 0.14f)), contentAlignment = Alignment.Center) { Glyph("music", ink, 26.dp, 2f) }
             }
             if (wide) {
                 Row(Modifier.fillMaxSize().padding(14.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    if (left) cover(Modifier.fillMaxHeight())
                     Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.SpaceBetween) {
                         StatusChip(status, playing, ink)
                         names(22, 2)
                         SongProgress(now, ink, true, onSeek)
                         controls(true)
                     }
-                    cover(Modifier.fillMaxHeight())
+                    if (!left) cover(Modifier.fillMaxHeight())
                 }
             } else {
                 Column(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.SpaceBetween) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        if (left) cover(Modifier.size(58.dp))
                         Column(Modifier.weight(1f)) {
                             StatusChip(status, playing, ink)
                             Spacer(Modifier.height(4.dp))
                             names(15, 2)
                         }
-                        cover(Modifier.size(58.dp))
+                        if (!left) cover(Modifier.size(58.dp))
                     }
                     SongProgress(now, ink, false, onSeek)
                     controls(false)
@@ -1580,6 +1768,7 @@ private fun MusicStyled(
                 }
             }
         }
+    }
     }
 }
 

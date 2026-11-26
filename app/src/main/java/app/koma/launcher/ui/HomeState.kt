@@ -4,6 +4,7 @@ import app.koma.launcher.data.AppLimits
 import app.koma.launcher.data.ClockModel
 import app.koma.launcher.data.TimeFmt
 import app.koma.launcher.data.MusicArg
+import app.koma.launcher.data.ClockArg
 import android.app.WallpaperManager
 import android.appwidget.AppWidgetProviderInfo
 import android.content.Context
@@ -350,25 +351,21 @@ class HomeState(private val context: Context) {
         Fonts.setClock(id)
     }
 
-    /** The default music style: used by music tiles that have not been given a style of their own. Tiles with their own style keep it. */
+    /** The music style: used by every music tile, and by new ones until one is given a style in its own options. */
     fun setMusicStyle(id: String) {
         prefs.musicStyle = id
-        // A tile that picked its own style would ignore this and the page would seem to do nothing, so every music tile follows the choice.
-        allOf(Kind.MUSIC).filter { MusicArg.style(it.arg).isNotEmpty() }.forEach { setArg(it.id, MusicArg.make(MusicArg.app(it.arg), "")) }
+        // Music tiles that picked their own style follow this choice too.
+        allOf(Kind.MUSIC).filter { MusicArg.style(it.arg).isNotEmpty() }.forEach { setArg(it.id, MusicArg.set(it.arg, style = "")) }
     }
 
-    /** Every tile and stacked component of one kind, so a settings page can tell which of its styles are in use. */
+    /** Every tile and stacked component of one kind. */
     private fun allOf(kind: Kind): List<Tile> = tiles.flatMap { t -> if (t.kind == Kind.STACK) t.children() else listOf(t) }.filter { it.kind == kind }
 
-    /** The music styles showing on the home screen right now (each tile may have its own, so several at once). */
-    fun musicStylesInUse(): Set<String> = allOf(Kind.MUSIC).map { MusicArg.style(it.arg).ifEmpty { prefs.musicStyle } }.toSet()
-
-    /** The clock styles showing on the home screen right now. */
-    fun clockStylesInUse(): Set<String> = allOf(Kind.CLOCK).map { it.arg.ifEmpty { prefs.clockStyle } }.toSet()
-
-    /** The default clock style: used by clocks that have not been given a style of their own. Clocks with their own style keep it. */
+    /** The clock style: used by every clock, and by new clocks until one is given a style in its own options. */
     fun setClockStyle(id: String) {
         prefs.clockStyle = id
+        // Clocks that picked their own style follow this choice too. Photos stay where they are.
+        allOf(Kind.CLOCK).filter { ClockArg.style(it.arg).isNotEmpty() }.forEach { setArg(it.id, ClockArg.set(it.arg, style = "")) }
     }
 
     fun setClockHour(v: String) {
@@ -673,11 +670,12 @@ class HomeState(private val context: Context) {
     fun stackInto(targetId: String, child: Tile) {
         val t = tiles.firstOrNull { it.id == targetId } ?: return rawInsert(child)
         val kids = if (t.kind == Kind.STACK) t.children() else listOf(t)
+        // A plain tile that becomes a stack gets a new id: the tile itself lives on as the first component, under its old one.
         val merged = if (t.kind == Kind.STACK) t.copy(arg = stackArg(kids + child))
-        else t.copy(kind = Kind.STACK, arg = stackArg(kids + child), label = "", glyph = "", color = -1)
+        else t.copy(id = UUID.randomUUID().toString(), kind = Kind.STACK, arg = stackArg(kids + child), label = "", glyph = "", color = -1)
         tiles = tiles.map { if (it.id == targetId) merged else it }
-        stackIndex[targetId] = kids.size
-        selectedId = targetId
+        stackIndex[merged.id] = kids.size
+        selectedId = merged.id
         save()
     }
 
@@ -707,11 +705,11 @@ class HomeState(private val context: Context) {
         tiles = tiles.filterNot { it.id == dragId }
         val kids = if (t.kind == Kind.STACK) t.children() else listOf(t)
         val merged = if (t.kind == Kind.STACK) t.copy(arg = stackArg(kids + incoming))
-        else t.copy(kind = Kind.STACK, arg = stackArg(kids + incoming), label = "", glyph = "", color = -1)
+        else t.copy(id = UUID.randomUUID().toString(), kind = Kind.STACK, arg = stackArg(kids + incoming), label = "", glyph = "", color = -1)
         tiles = tiles.map { if (it.id == targetId) merged else it }
-        stackIndex[targetId] = kids.size
+        stackIndex[merged.id] = kids.size
         stackIndex.remove(dragId)
-        selectedId = targetId
+        selectedId = merged.id
         save()
     }
 
@@ -736,6 +734,27 @@ class HomeState(private val context: Context) {
                 save()
             }
         }
+    }
+
+    /** Takes one component out of a stack and puts it on the home screen as its own tile, right after the stack. Nothing is deleted. */
+    fun extractFromStack(stackId: String, childId: String) {
+        val t = tiles.firstOrNull { it.id == stackId && it.kind == Kind.STACK } ?: return
+        val kids = t.children()
+        val c = kids.firstOrNull { it.id == childId } ?: return
+        val left = kids.filterNot { it.id == childId }
+        val out = c.copy(w = t.w, h = t.h)
+        val at = tiles.indexOf(t)
+        tiles = tiles.toMutableList().also { list ->
+            when {
+                left.isEmpty() -> list[at] = out
+                left.size == 1 -> { list[at] = left[0].copy(w = t.w, h = t.h); list.add(at + 1, out) }
+                else -> { list[at] = t.copy(arg = stackArg(left)); list.add(at + 1, out) }
+            }
+        }
+        if (left.size <= 1) stackIndex.remove(stackId) else stackIndex[stackId] = (stackIndex[stackId] ?: 0).coerceIn(0, left.size - 1)
+        sheetId = null
+        selectedId = out.id
+        save()
     }
 
     fun moveInStack(stackId: String, childId: String, by: Int) {
@@ -793,9 +812,9 @@ class HomeState(private val context: Context) {
     /** A tile by id, or a component inside a stack. */
     fun findTile(id: String?): Tile? {
         if (id == null) return null
-        tiles.firstOrNull { it.id == id }?.let { return it }
+        // Components first: a stack shares its id with its first component, and callers want that component's own settings.
         for (t in tiles) if (t.kind == Kind.STACK) t.children().firstOrNull { it.id == id }?.let { return it }
-        return null
+        return tiles.firstOrNull { it.id == id }
     }
 
     /** Colours one component of a stack. */
@@ -809,10 +828,13 @@ class HomeState(private val context: Context) {
     fun setArg(id: String, arg: String) {
         tiles = tiles.map { t ->
             when {
-                t.id == id -> t.copy(arg = arg)
-                // A component inside a stack: change it within the stack's saved list.
+                // A component inside a stack: change it within the stack's saved list. This comes first because a tile
+                // that became a stack keeps its id, so its first component and the stack share one; matching the
+                // stack itself here would overwrite the whole list with the new value and empty the stack.
                 t.kind == Kind.STACK && t.children().any { it.id == id } ->
                     t.copy(arg = stackArg(t.children().map { c -> if (c.id == id) c.copy(arg = arg) else c }))
+                // A stack's own data is only ever written by the stack functions, never by a component's setting.
+                t.id == id -> if (t.kind == Kind.STACK) t else t.copy(arg = arg)
                 else -> t
             }
         }

@@ -216,7 +216,7 @@ fun Drawer(state: HomeState) {
                 state.screen = Screen.Home
             }
             pick.kind == "music" && pick.tileId != null -> {
-                state.setArg(pick.tileId, MusicArg.make(app.key, MusicArg.style(state.findTile(pick.tileId)?.arg ?: "")))
+                state.setArg(pick.tileId, MusicArg.set(state.findTile(pick.tileId)?.arg ?: "", app = app.key))
                 state.pick = null
                 state.screen = Screen.Home
             }

@@ -2,6 +2,7 @@ package app.koma.launcher.ui
 
 import app.koma.launcher.data.Words
 import app.koma.launcher.data.MusicArg
+import app.koma.launcher.data.ClockArg
 import android.Manifest
 import android.app.Activity
 import android.appwidget.AppWidgetManager
@@ -68,6 +69,7 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -132,7 +134,10 @@ fun HomeScreen(state: HomeState, homePress: Int, homeInApp: Boolean = false) {
                 ctx.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
             } catch (e: Exception) {
             }
-            state.setArg(id, uri.toString())
+            val t = state.findTile(id)
+            // A clock keeps its photo beside its style; every other tile keeps just the photo.
+            if (t != null && t.kind == Kind.CLOCK) state.setArg(id, ClockArg.set(t.arg, image = uri.toString()))
+            else state.setArg(id, uri.toString())
         }
     }
     LaunchedEffect(state.photoRequest) {
@@ -961,7 +966,7 @@ private fun TileBody(
     val pal = state.palette
     val glass = state.prefs.tileStyle == "glass"
     when (tile.kind) {
-        Kind.CLOCK -> ClockTile(tile.w, tile.h, fill, ink, tile.arg.ifEmpty { state.prefs.clockStyle }, state.prefs.clockSeconds)
+        Kind.CLOCK -> ClockTile(tile.w, tile.h, fill, ink, ClockArg.style(tile.arg).ifEmpty { state.prefs.clockStyle }, state.prefs.clockSeconds, ClockArg.image(tile.arg), ClockArg.design(tile.arg))
         Kind.DATE -> DateTile(tile.w, tile.h, fill, ink)
         Kind.KANJI -> {
             val words = Words.parse(tile.arg)
@@ -1006,6 +1011,7 @@ private fun TileBody(
                 now = now,
                 onSeek = { state.media.seekTo(it) },
                 style = MusicArg.style(tile.arg).ifEmpty { state.prefs.musicStyle },
+                design = MusicArg.design(tile.arg),
             )
         }
         Kind.CALENDAR -> CalendarTile(tile.w, tile.h, fill, ink, state.calendarGranted, state.hiddenCalendars, state.calendarColors, state.prefs.calRefreshMin)
@@ -1105,32 +1111,61 @@ private fun StackTile(state: HomeState, ctx: Context, tile: Tile, edit: Boolean)
             }
             onDispose { StackNav.flip.remove(tile.id) }
         }
+        val acc = remember { FloatArray(1) }
+        val start = remember { IntArray(1) }
+        val begin = {
+            job[0]?.cancel()
+            start[0] = ps.currentPage
+            acc[0] = ps.currentPageOffsetFraction * ps.layoutInfo.pageSize
+        }
+        val move = { d: Float ->
+            val size = ps.layoutInfo.pageSize.toFloat()
+            val next = (acc[0] - d).coerceIn(-size, size)
+            ps.dispatchRawDelta(next - acc[0])
+            acc[0] = next
+        }
+        val end = {
+            val size = ps.layoutInfo.pageSize.toFloat()
+            val target = start[0] + when {
+                acc[0] > size * 0.2f -> 1
+                acc[0] < -size * 0.2f -> -1
+                else -> 0
+            }
+            job[0] = scope.launch {
+                ps.animateScrollToPage(target, animationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.85f, stiffness = 380f))
+            }
+            Unit
+        }
+        // A component with its own list (Reminders, Calendar...) eats the swipe along the stack's direction. When that list
+        // is at its end, or can't scroll, the leftover moves the stack instead, so the stack can still be swiped.
+        val handOff = remember(ps, horizontal) {
+            object : androidx.compose.ui.input.nestedscroll.NestedScrollConnection {
+                var active = false
+                private fun axis(o: androidx.compose.ui.geometry.Offset) = if (horizontal) o.x else o.y
+                override fun onPreScroll(available: androidx.compose.ui.geometry.Offset, source: androidx.compose.ui.input.nestedscroll.NestedScrollSource): androidx.compose.ui.geometry.Offset {
+                    if (!active || source != androidx.compose.ui.input.nestedscroll.NestedScrollSource.UserInput) return androidx.compose.ui.geometry.Offset.Zero
+                    move(axis(available))
+                    return if (horizontal) androidx.compose.ui.geometry.Offset(available.x, 0f) else androidx.compose.ui.geometry.Offset(0f, available.y)
+                }
+                override fun onPostScroll(consumed: androidx.compose.ui.geometry.Offset, available: androidx.compose.ui.geometry.Offset, source: androidx.compose.ui.input.nestedscroll.NestedScrollSource): androidx.compose.ui.geometry.Offset {
+                    val d = axis(available)
+                    if (source != androidx.compose.ui.input.nestedscroll.NestedScrollSource.UserInput || d == 0f) return androidx.compose.ui.geometry.Offset.Zero
+                    if (!active) {
+                        active = true
+                        begin()
+                    }
+                    move(d)
+                    return if (horizontal) androidx.compose.ui.geometry.Offset(available.x, 0f) else androidx.compose.ui.geometry.Offset(0f, available.y)
+                }
+                override suspend fun onPreFling(available: androidx.compose.ui.unit.Velocity): androidx.compose.ui.unit.Velocity {
+                    if (!active) return androidx.compose.ui.unit.Velocity.Zero
+                    active = false
+                    end()
+                    return available
+                }
+            }
+        }
         val dragger = Modifier.pointerInput(horizontal, edit) {
-            var acc = 0f
-            var start = 0
-            val begin = {
-                job[0]?.cancel()
-                start = ps.currentPage
-                acc = ps.currentPageOffsetFraction * ps.layoutInfo.pageSize
-            }
-            val move = { d: Float ->
-                val size = ps.layoutInfo.pageSize.toFloat()
-                val next = (acc - d).coerceIn(-size, size)
-                ps.dispatchRawDelta(next - acc)
-                acc = next
-            }
-            val end = {
-                val size = ps.layoutInfo.pageSize.toFloat()
-                val target = start + when {
-                    acc > size * 0.2f -> 1
-                    acc < -size * 0.2f -> -1
-                    else -> 0
-                }
-                job[0] = scope.launch {
-                    ps.animateScrollToPage(target, animationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.85f, stiffness = 380f))
-                }
-                Unit
-            }
             if (edit) {
                 // While editing, a quick swipe flips through the stack; holding first still picks the tile up to move it.
                 awaitEachGesture {
@@ -1171,7 +1206,7 @@ private fun StackTile(state: HomeState, ctx: Context, tile: Tile, edit: Boolean)
                 move(d)
             }
         }
-        Box(Modifier.fillMaxSize().then(dragger)) {
+        Box(Modifier.fillMaxSize().nestedScroll(handOff).then(dragger)) {
             if (horizontal) {
                 androidx.compose.foundation.pager.HorizontalPager(
                     state = ps,

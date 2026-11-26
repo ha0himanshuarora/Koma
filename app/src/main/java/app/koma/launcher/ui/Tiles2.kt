@@ -504,7 +504,7 @@ fun NoteTile(w: Int, h: Int, bg: Color, ink: Color, notes: List<Note>, onOpen: (
 
 // ---- photo and screen time ---------------------------------------------------------------------
 
-private fun decodePhoto(ctx: Context, uri: String): ImageBitmap? = try {
+internal fun decodePhoto(ctx: Context, uri: String): ImageBitmap? = try {
     val u = Uri.parse(uri)
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     ctx.contentResolver.openInputStream(u)?.use { BitmapFactory.decodeStream(it, null, bounds) }

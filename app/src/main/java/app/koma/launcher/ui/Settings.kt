@@ -476,14 +476,12 @@ internal fun ClockStyleSettings(state: HomeState, onBack: () -> Unit, onFont: ()
             ListRow("Clock font", fontName, "type", pal.tiles[1 % pal.tiles.size], onClick = onFont)
             Dropdown(clockTones, prefs.clockTone, "Digit tone") { state.setClockTone(it) }
         }
-        val inUse = state.clockStylesInUse()
-        Group("CLOCK STYLE", hint = "Tap to set the default. Each clock tile can pick its own style in its options, so several can be on screen at once.") {
+                Group("CLOCK STYLE", hint = "Tap a style to use it on every clock. For a photo or a style on just one clock, open its options while editing.") {
           GroupPad {
         clockStyles.chunked(2).forEachIndexed { row, pair ->
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 pair.forEachIndexed { col, (id, name) ->
-                    val isDefault = prefs.clockStyle == id
-                    val on = id in inUse || isDefault
+                    val on = prefs.clockStyle == id
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Box(
                             Modifier.fillMaxWidth().height(150.dp).clip(TileShape).clickable { state.setClockStyle(id) },
@@ -499,7 +497,7 @@ internal fun ClockStyleSettings(state: HomeState, onBack: () -> Unit, onFont: ()
                         Box(
                             Modifier.padding(start = 2.dp).clip(RoundedCornerShape(8.dp)).background(if (on) pal.onGround else Color.Transparent)
                                 .padding(horizontal = 8.dp, vertical = 3.dp),
-                        ) { BasicText(name + if (isDefault) "  /  DEFAULT" else "", style = monoStyle(if (on) pal.ground else pal.onGround.copy(alpha = 0.6f), 10, bold = on)) }
+                        ) { BasicText(name, style = monoStyle(if (on) pal.ground else pal.onGround.copy(alpha = 0.6f), 10, bold = on)) }
                     }
                 }
                 if (pair.size == 1) Spacer(Modifier.weight(1f))
@@ -559,8 +557,7 @@ private fun MusicStylePage(state: HomeState) {
                 musicStyles.chunked(2).forEachIndexed { row, pair ->
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         pair.forEachIndexed { col, (id, name) ->
-                            val isDefault = prefs.musicStyle == id
-                            val on = isDefault
+                            val on = prefs.musicStyle == id
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Box(Modifier.fillMaxWidth().height(190.dp).clip(TileShape).clickable { state.setMusicStyle(id) }) {
                                     Box(Modifier.fillMaxSize().alpha(if (on) 1f else 0.55f)) {
@@ -574,7 +571,7 @@ private fun MusicStylePage(state: HomeState) {
                                 Box(
                                     Modifier.padding(start = 2.dp).clip(RoundedCornerShape(8.dp)).background(if (on) pal.onGround else Color.Transparent)
                                         .padding(horizontal = 8.dp, vertical = 3.dp),
-                                ) { BasicText(name + if (isDefault) "  /  DEFAULT" else "", style = monoStyle(if (on) pal.ground else pal.onGround.copy(alpha = 0.6f), 10, bold = on)) }
+                                ) { BasicText(name, style = monoStyle(if (on) pal.ground else pal.onGround.copy(alpha = 0.6f), 10, bold = on)) }
                             }
                         }
                         if (pair.size == 1) Spacer(Modifier.weight(1f))

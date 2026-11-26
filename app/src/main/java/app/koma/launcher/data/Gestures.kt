@@ -39,9 +39,42 @@ object Gestures {
     }
 }
 
+/**
+ * A clock tile keeps "<style>|<photo address>|<photo design>" in its arg. Any part can be empty, and a plain style id
+ * is still valid. [set] changes one part and keeps the others.
+ */
+object ClockArg {
+    private fun part(arg: String, i: Int) = arg.split('|').getOrElse(i) { "" }
+    fun style(arg: String) = part(arg, 0)
+    fun image(arg: String) = part(arg, 1)
+    fun design(arg: String) = part(arg, 2)
+    fun set(arg: String, style: String? = null, image: String? = null, design: String? = null): String {
+        val s = style ?: style(arg)
+        val i = image ?: image(arg)
+        val d = design ?: design(arg)
+        return when {
+            d.isNotEmpty() -> "$s|$i|$d"
+            i.isNotEmpty() -> "$s|$i"
+            else -> s
+        }
+    }
+}
+
 /** A music tile keeps "<app key>|<style>" in its arg. Either part can be empty. */
 object MusicArg {
-    fun app(arg: String) = arg.substringBefore('|')
-    fun style(arg: String) = if ('|' in arg) arg.substringAfter('|') else ""
-    fun make(app: String, style: String) = if (style.isEmpty()) app else "$app|$style"
+    private fun part(arg: String, i: Int) = arg.split('|').getOrElse(i) { "" }
+    fun app(arg: String) = part(arg, 0)
+    fun style(arg: String) = part(arg, 1)
+    fun design(arg: String) = part(arg, 2)
+    /** Stored as "app|style|design". Changes one part and keeps the others. */
+    fun set(arg: String, app: String? = null, style: String? = null, design: String? = null): String {
+        val a = app ?: app(arg)
+        val s = style ?: style(arg)
+        val d = design ?: design(arg)
+        return when {
+            d.isNotEmpty() -> "$a|$s|$d"
+            s.isNotEmpty() -> "$a|$s"
+            else -> a
+        }
+    }
 }

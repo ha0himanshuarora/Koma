@@ -140,7 +140,7 @@ fun TasksScreen(state: HomeState) {
                     Row(verticalAlignment = Alignment.Bottom) {
                         BasicText("$dayDone", style = dispStyle(pal.ink, if (land) 52 else 80))
                         // The total is drawn as an outline.
-                        BasicText("/$dayTotal", style = dispStyle(pal.ink, if (land) 52 else 80).copy(drawStyle = Stroke(width = 3f)))
+                        OutlineText("/$dayTotal", dispStyle(pal.ink, if (land) 52 else 80), pal.ink, 3f)
                     }
                 }
                 Column(Modifier.align(Alignment.BottomEnd), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {

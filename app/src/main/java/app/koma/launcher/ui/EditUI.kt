@@ -1,6 +1,7 @@
 package app.koma.launcher.ui
 
 import app.koma.launcher.data.MusicArg
+import app.koma.launcher.data.ClockArg
 import android.appwidget.AppWidgetProviderInfo
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -226,8 +227,21 @@ private fun KindOptions(state: HomeState, tile: Tile) {
     val pal = state.palette
     when (tile.kind) {
         Kind.CLOCK -> {
+            val clockStyle = ClockArg.style(tile.arg)
+            val clockPhoto = ClockArg.image(tile.arg)
+            val clockDesign = ClockArg.design(tile.arg).ifEmpty { clockPhotoDesigns.first().first }
             Group("CLOCK") {
-                ChipRow(listOf("" to "DEFAULT") + clockStyles, tile.arg, title = "Style") { state.setArg(tile.id, it) }
+                ChipRow(clockStyles, clockStyle.ifEmpty { state.prefs.clockStyle }, title = "Style") { state.setArg(tile.id, ClockArg.set(tile.arg, style = it)) }
+            }
+            if (clockStyle.ifEmpty { state.prefs.clockStyle } == "poster") Group("PHOTO", hint = "Shown beside the time. It needs a tile at least 2 wide and 2 tall. Pick how the picture is cut and where it sits.") {
+                ListRow(if (clockPhoto.isEmpty()) "Add a photo" else "Change photo", "Choose from your gallery", onClick = {
+                    state.sheetId = null
+                    state.photoRequest = tile.id
+                })
+                if (clockPhoto.isNotEmpty()) {
+                    ChipRow(clockPhotoDesigns, clockDesign, title = "Design") { state.setArg(tile.id, ClockArg.set(tile.arg, design = it)) }
+                    ListRow("Remove photo", "Back to just the time", onClick = { state.setArg(tile.id, ClockArg.set(tile.arg, image = "")) })
+                }
             }
         }
         Kind.KANJI -> {
@@ -262,14 +276,16 @@ private fun KindOptions(state: HomeState, tile: Tile) {
         Kind.MUSIC -> {
             val musicApp = MusicArg.app(tile.arg)
             val musicStyle = MusicArg.style(tile.arg)
+            val musicDesign = MusicArg.design(tile.arg).ifEmpty { clockPhotoDesigns.first().first }
             val chosen = state.apps.firstOrNull { it.key == musicApp }
             Group("MUSIC") {
-                ChipRow(listOf("" to "DEFAULT") + musicStyles, musicStyle, title = "Style") { state.setArg(tile.id, MusicArg.make(musicApp, it)) }
+                ChipRow(musicStyles, musicStyle.ifEmpty { state.prefs.musicStyle }, title = "Style") { state.setArg(tile.id, MusicArg.set(tile.arg, style = it)) }
+                if (musicStyle.ifEmpty { state.prefs.musicStyle } == "poster") ChipRow(clockPhotoDesigns, musicDesign, title = "Cover design") { state.setArg(tile.id, MusicArg.set(tile.arg, design = it)) }
                 ListRow("Music app", chosen?.label ?: "Automatic: the player that is playing", onClick = {
                     state.sheetId = null
                     state.openDrawer(pickFor = Pick("music", tile.id))
                 })
-                if (chosen != null) ListRow("Use automatic", "Playing player, last player, or default", onClick = { state.setArg(tile.id, MusicArg.make("", musicStyle)) })
+                if (chosen != null) ListRow("Use automatic", "Playing player, last player, or default", onClick = { state.setArg(tile.id, MusicArg.set(tile.arg, app = "")) })
             }
         }
         Kind.COUNTDOWN -> {
@@ -631,6 +647,7 @@ private fun StackSection(state: HomeState, tile: Tile) {
             hint = "Size follows the stack (${tile.w}x${tile.h})",
         ) {
             if (open.kind != Kind.ALL) ColourRow(open.color) { state.recolorChild(tile.id, open.id, it) }
+            ListRow("Move to home screen", "Take it out of the stack as its own tile", onClick = { state.extractFromStack(tile.id, open.id) })
         }
         KindOptions(state, open)
     }

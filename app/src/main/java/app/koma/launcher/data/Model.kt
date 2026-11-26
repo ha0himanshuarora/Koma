@@ -61,13 +61,28 @@ data class Tile(
 ) {
 }
 
-/** The components inside a STACK tile. Each takes the stack's footprint; the list is kept as JSON in [Tile.arg]. */
+/**
+ * The components inside a STACK tile. The stack keeps an ordered list of their ids ("ids") and, beside it, each
+ * component by id ("items"), all as JSON in [Tile.arg]. Every component has an id of its own, never the stack's, so
+ * changing one component can never touch the stack or another component. The first version stored a plain array of
+ * components; that is still read, and written back in the new form the next time the stack changes.
+ */
 fun Tile.children(): List<Tile> {
     if (kind != Kind.STACK || arg.isBlank()) return emptyList()
     return try {
-        val a = org.json.JSONArray(arg)
-        (0 until a.length()).mapNotNull { i ->
-            val o = a.getJSONObject(i)
+        val root = org.json.JSONTokener(arg).nextValue()
+        val raw = ArrayList<org.json.JSONObject>()
+        if (root is org.json.JSONArray) {
+            for (i in 0 until root.length()) raw.add(root.getJSONObject(i))
+        } else if (root is org.json.JSONObject) {
+            val ids = root.getJSONArray("ids")
+            val items = root.getJSONObject("items")
+            for (i in 0 until ids.length()) {
+                val id = ids.getString(i)
+                items.optJSONObject(id)?.let { raw.add(org.json.JSONObject(it.toString()).put("id", id)) }
+            }
+        }
+        raw.mapNotNull { o ->
             val k = Kind.entries.firstOrNull { it.name == o.optString("k").replace("TASKS", "REMINDERS") } ?: return@mapNotNull null
             if (k == Kind.STACK) null
             else Tile(o.optString("id"), k, w, h, o.optString("a"), o.optString("l"), o.optString("g"), o.optInt("c", -1))
@@ -78,14 +93,19 @@ fun Tile.children(): List<Tile> {
 }
 
 fun stackArg(kids: List<Tile>): String {
-    val a = org.json.JSONArray()
-    kids.forEach {
-        a.put(
-            org.json.JSONObject().put("id", it.id).put("k", it.kind.name).put("a", it.arg)
-                .put("l", it.label).put("g", it.glyph).put("c", it.color)
+    // Ids must be unique inside a stack, or one entry would replace another.
+    val seen = HashSet<String>()
+    val ids = org.json.JSONArray()
+    val items = org.json.JSONObject()
+    kids.forEach { c ->
+        val id = if (c.id.isNotEmpty() && seen.add(c.id)) c.id else java.util.UUID.randomUUID().toString().also { seen.add(it) }
+        ids.put(id)
+        items.put(
+            id,
+            org.json.JSONObject().put("k", c.kind.name).put("a", c.arg).put("l", c.label).put("g", c.glyph).put("c", c.color),
         )
     }
-    return a.toString()
+    return org.json.JSONObject().put("ids", ids).put("items", items).toString()
 }
 
 /** The sizes this tile may take. A stack only allows sizes every component in it supports. */
