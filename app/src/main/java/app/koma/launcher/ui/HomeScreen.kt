@@ -712,11 +712,12 @@ private fun HomeGrid(state: HomeState, ctx: Context, scroll: ScrollState) {
                                 val inset = gapPx
                                 val midX = o.x + wPx / 2
                                 val midY = o.y + hPx / 2
-                                val edge = 44.dp.toPx()
-                                val corner = 56.dp.toPx()
+                                val dn = LocalDensity.current
+                                val edge = dn.run { 44.dp.toPx() }
+                                val corner = dn.run { 56.dp.toPx() }
                                 // Edge zones run along most of the side, so a drag anywhere along it grabs the handle.
-                                val alongV = maxOf(hPx * 0.6f, 64.dp.toPx())
-                                val alongH = maxOf(wPx * 0.6f, 64.dp.toPx())
+                                val alongV = maxOf(hPx * 0.6f, dn.run { 64.dp.toPx() })
+                                val alongH = maxOf(wPx * 0.6f, dn.run { 64.dp.toPx() })
                                 if (canW) {
                                     Handle(o.x + wPx - inset - edge / 4, midY, 1, 0, edge, alongV)
                                     Handle(o.x + inset + edge / 4, midY, -1, 0, edge, alongV)
@@ -727,7 +728,7 @@ private fun HomeGrid(state: HomeState, ctx: Context, scroll: ScrollState) {
                                 }
                                 // Corners are drawn last, so they win where they overlap an edge.
                                 if (canW && canH) {
-                                    val k = corner / 2 - 4.dp.toPx()
+                                    val k = corner / 2 - dn.run { 4.dp.toPx() }
                                     Handle(o.x + wPx - inset - k, o.y + hPx - inset - k, 1, 1, corner, corner)
                                     Handle(o.x + inset + k, o.y + hPx - inset - k, -1, 1, corner, corner)
                                     Handle(o.x + wPx - inset - k, o.y + inset + k, 1, -1, corner, corner)
