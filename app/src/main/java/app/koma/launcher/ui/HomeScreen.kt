@@ -295,6 +295,7 @@ fun HomeScreen(state: HomeState, homePress: Int, homeInApp: Boolean = false) {
                 val sheetTile = state.tiles.firstOrNull { it.id == state.sheetId }
                 if (sheetTile != null && state.screen == Screen.Home) TileSheet(state, sheetTile)
                 if (state.showPicker) PickerSheet(state)
+                state.dockPick?.let { if (state.screen == Screen.Home) DockSheet(state, it) }
                 if (state.showGrid && state.edit) GridSheet(state)
                 if (state.showWidgets) WidgetChooser(state)
                 val free = !state.edit && state.sheetId == null && !state.showPicker && !state.showWidgets
@@ -319,6 +320,10 @@ private fun HomeGrid(state: HomeState, ctx: Context, scroll: ScrollState) {
 
     var gridW by remember { mutableIntStateOf(0) }
     var viewH by remember { mutableIntStateOf(0) }
+    // The whole home area (below the status bar, above the navigation bar). The Today home sizes its cells from this,
+    // as if the grid filled it, so a tile has exactly the size it has on the classic home even though the grid is shorter.
+    var colH by remember { mutableIntStateOf(0) }
+    val topSpacerPx = with(LocalDensity.current) { 10.dp.toPx() }
     // The viewport height outside edit mode, so tiles keep their height when the edit bar appears.
     var baseH by remember { mutableIntStateOf(0) }
     // Swiping up on the home screen opens search. When the home scrolls, the grid scrolls first; search opens from the
@@ -345,13 +350,17 @@ private fun HomeGrid(state: HomeState, ctx: Context, scroll: ScrollState) {
     // Sideways there is twice the width and about half the height: twice the columns, fewer rows, and every tile
     // keeps its own size, so tiles flow side by side and keep roughly the same shape.
     val land = androidx.compose.ui.platform.LocalConfiguration.current.let { it.screenWidthDp > it.screenHeightDp }
-    val cols = if (land) state.prefs.gridCols * 2 else state.prefs.gridCols
+    val cols = if (land) state.gridCols * 2 else state.gridCols
     val rowsOnScreen = if (land) maxOf(3, (state.prefs.gridRows * 0.55f).roundToInt()) else state.prefs.gridRows
+    // The Today home type puts its clock, music strip and dock around the grid; sideways there is no room, so it is just the grid.
+    val chrome = state.today && !land
     fun cellSize() = (gridW - gapPx * (cols - 1)) / cols
     // Tile height: this many rows fit on one screen. Falls back to square cells until the screen is measured.
     fun cellHeight(): Float {
         // Sideways, tiles stay square whatever the screen shape; the page just scrolls.
         if (land) return cellSize()
+        // Today: the same rows-on-screen of the same full height as the classic home, so the same size is the same size.
+        if (chrome && colH > 0) return (colH - topSpacerPx - gapPx * (rowsOnScreen - 1)) / rowsOnScreen
         val h = if (baseH > 0) baseH else viewH
         return if (h > 0) (h - gapPx * (rowsOnScreen - 1)) / rowsOnScreen else cellSize()
     }
@@ -378,23 +387,24 @@ private fun HomeGrid(state: HomeState, ctx: Context, scroll: ScrollState) {
         return -1
     }
 
-    Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
+    Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().onSizeChanged { colH = it.height }) {
         if (edit) EditTopBar(state) else Spacer(Modifier.height(10.dp))
+        if (chrome) TodayHeader(state, ctx)
 
         Box(
             Modifier
                 .weight(1f)
                 .fillMaxWidth()
                 .onSizeChanged { viewH = it.height; if (!edit) baseH = it.height }
-                .pointerInput(state) {
+                .pointerInput(state, chrome) {
                     // Watches every touch without taking it. Once the list is at its bottom (or does not scroll at all),
                     // a drag up from there opens search, whatever the list itself did with the touch.
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
                         // Search only opens from a swipe that starts at the bottom edge of the screen. Anywhere else
                         // an upward swipe belongs to scrolling or to cycling a stack.
-                        val fromBottom = down.position.y > size.height - 130.dp.toPx()
-                        val fromTop = down.position.y < 130.dp.toPx()
+                        val fromBottom = !chrome && down.position.y > size.height - 130.dp.toPx()
+                        val fromTop = !chrome && down.position.y < 130.dp.toPx()
                         var topY = Float.NaN
                         var downTravel = 0f
                         val vt = VelocityTracker()
@@ -744,6 +754,10 @@ private fun HomeGrid(state: HomeState, ctx: Context, scroll: ScrollState) {
             }
         }
 
+        if (chrome && !edit) {
+            TodayMusic(state, ctx)
+            TodayDock(state, ctx)
+        }
         if (edit) EditBar(state)
     }
 }
@@ -838,7 +852,7 @@ private fun TileFrame(
 }
 
 /** Runs an all-apps tile gesture's action. */
-private fun runGesture(state: HomeState, action: String) {
+internal fun runGesture(state: HomeState, action: String) {
     val system = when (action) {
         "lock" -> android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN
         "shade" -> android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_NOTIFICATIONS
@@ -931,13 +945,13 @@ private fun SpaceFrame(state: HomeState, tile: Tile, edit: Boolean, selected: Bo
     }
 }
 
-private class TileLook(val base: Color, val fill: Color, val ink: Color)
+internal class TileLook(val base: Color, val fill: Color, val ink: Color)
 
 /** The automatic colour slot of component [i] in a stack: neighbours get different colours instead of one shared one. */
 internal fun stackSlot(stack: Tile, i: Int) = abs(stack.id.hashCode()) % 97 + i
 
 /** Colours for a tile under the current tile style (solid, glass or tinted glass). */
-private fun tileLook(state: HomeState, tile: Tile, slot: Int = -1): TileLook {
+internal fun tileLook(state: HomeState, tile: Tile, slot: Int = -1): TileLook {
     val pal = state.palette
     val look = state.prefs.tileStyle
     val base = if (tile.color >= 0) pal.all[tile.color % pal.all.size]
@@ -954,7 +968,7 @@ private fun tileLook(state: HomeState, tile: Tile, slot: Int = -1): TileLook {
 
 /** What a tile draws inside its frame. Also used for each page of a stack. */
 @Composable
-private fun TileBody(
+internal fun TileBody(
     state: HomeState,
     ctx: Context,
     tile: Tile,
@@ -1272,7 +1286,7 @@ private fun StackDots(
     }
 }
 
-private fun onTileClick(state: HomeState, ctx: Context, tile: Tile) {
+internal fun onTileClick(state: HomeState, ctx: Context, tile: Tile) {
     when (tile.kind) {
         Kind.APP -> if (tile.arg.isBlank()) state.openDrawer(pickFor = Pick("assign", tile.id)) else state.launch(tile.arg)
         Kind.GROUP -> if (tile.arg.isBlank()) state.openDrawer(pickFor = Pick("group", tile.id))
@@ -1309,7 +1323,7 @@ private fun onTileClick(state: HomeState, ctx: Context, tile: Tile) {
     }
 }
 
-private fun tryStart(ctx: Context, intent: Intent): Boolean = try {
+internal fun tryStart(ctx: Context, intent: Intent): Boolean = try {
     ctx.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     true
 } catch (e: Exception) {
@@ -1320,7 +1334,7 @@ private fun tryStart(ctx: Context, intent: Intent): Boolean = try {
  * Opens a music app: the one chosen for this tile, else the player playing now, else the last one seen playing,
  * else the phone's default music app. If none of those exist the drawer opens so one can be chosen once.
  */
-private fun openMusic(state: HomeState, ctx: Context, tile: Tile) {
+internal fun openMusic(state: HomeState, ctx: Context, tile: Tile) {
     val chosen = MusicArg.app(tile.arg)
     if (chosen.isNotBlank() && state.apps.any { it.key == chosen }) {
         state.launch(chosen)

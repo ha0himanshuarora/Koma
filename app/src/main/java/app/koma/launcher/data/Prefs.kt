@@ -44,6 +44,15 @@ class Prefs(sp: SharedPreferences) {
         @Volatile var live: Prefs? = null
     }
 
+    /** "classic" (the free grid) or "today" (clock on top, three cards, music strip and a dock). Each keeps its own tiles. */
+    var homeType by Pref(sp, "home_type", "classic")
+    /** The Today home keeps its own number of columns. Its tiles are square-celled like the classic home's. */
+    var todayCols by Pref(sp, "today_cols", 4)
+    /** The two apps the Today dock held before its buttons became components. Only read, to carry them over. */
+    var dock1 by Pref(sp, "dock_1", "")
+    var dock2 by Pref(sp, "dock_2", "")
+    /** The music app the Today music strip opens when nothing is playing. */
+    var todayMusic by Pref(sp, "today_music", "")
     /** Removing a component leaves an empty space of its size instead of pulling the ones below up. */
     var keepGaps by Pref(sp, "keep_gaps", true)
     /** Double tap on an empty part of the home screen locks the phone (needs Koma's accessibility service). */

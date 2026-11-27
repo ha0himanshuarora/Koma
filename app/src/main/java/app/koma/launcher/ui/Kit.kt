@@ -385,12 +385,22 @@ fun HeroBox(colour: Color = LocalPalette.current.tiles[0], content: @Composable 
     }
 }
 
-/** The card at the top of a page: a small caption, a big line, an optional note and optional chips. */
+/**
+ * The card at the top of a page: a small caption, a big line, an optional note and optional chips. [leading] puts a
+ * small picture on the left, with the text beside it.
+ */
 @Composable
-fun PageHero(caption: String, title: String, note: String = "", colour: Color = LocalPalette.current.tiles[0], chips: List<String> = emptyList()) {
+fun PageHero(
+    caption: String,
+    title: String,
+    note: String = "",
+    colour: Color = LocalPalette.current.tiles[0],
+    chips: List<String> = emptyList(),
+    leading: (@Composable () -> Unit)? = null,
+) {
     val pal = LocalPalette.current
-    HeroBox(colour) {
-        BasicText(caption.uppercase(), style = monoStyle(pal.ink.copy(alpha = 0.7f), 10, bold = true), maxLines = 1)
+    val text: @Composable ColumnScope.() -> Unit = {
+        if (caption.isNotEmpty()) BasicText(caption.uppercase(), style = monoStyle(pal.ink.copy(alpha = 0.7f), 10, bold = true), maxLines = 1)
         BasicText(title, style = dispStyle(pal.ink, 30), maxLines = 2)
         if (note.isNotEmpty()) BasicText(note, style = bodyStyle(pal.ink.copy(alpha = 0.75f), 13))
         if (chips.isNotEmpty()) Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -399,6 +409,12 @@ fun PageHero(caption: String, title: String, note: String = "", colour: Color = 
                     BasicText(c.uppercase(), style = monoStyle(pal.ink, 9, bold = true), maxLines = 1)
                 }
             }
+        }
+    }
+    HeroBox(colour) {
+        if (leading == null) text() else Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            leading()
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp), content = text)
         }
     }
 }

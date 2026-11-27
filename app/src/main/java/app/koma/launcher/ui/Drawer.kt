@@ -216,7 +216,14 @@ fun Drawer(state: HomeState) {
                 state.screen = Screen.Home
             }
             pick.kind == "music" && pick.tileId != null -> {
-                state.setArg(pick.tileId, MusicArg.set(state.findTile(pick.tileId)?.arg ?: "", app = app.key))
+                // The Today music strip is not a tile; it keeps its app in a setting.
+                if (pick.tileId == "today-music") state.prefs.todayMusic = app.key
+                else state.setArg(pick.tileId, MusicArg.set(state.findTile(pick.tileId)?.arg ?: "", app = app.key))
+                state.pick = null
+                state.screen = Screen.Home
+            }
+            pick.kind == "dock" && pick.tileId != null -> {
+                state.setDockApp(pick.tileId.toIntOrNull() ?: 0, app.key)
                 state.pick = null
                 state.screen = Screen.Home
             }

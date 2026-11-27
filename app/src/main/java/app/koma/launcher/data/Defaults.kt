@@ -37,6 +37,17 @@ object Defaults {
     private fun role(label: String, glyph: String, color: Int, roles: Map<String, String>) =
         Tile("role-$glyph", Kind.APP, 1, 1, arg = roles[label] ?: "", label = label, glyph = glyph, color = color)
 
+    /**
+     * First layout of the Today home type: the three cards (next event tall on the left, timer and focus on its right)
+     * and a screen time row below. The clock, music strip and dock are part of the screen itself, not tiles.
+     */
+    fun todayLayout(): List<Tile> = listOf(
+        Tile("today-next", Kind.CALENDAR, 2, 2, color = 0),
+        Tile("today-timer", Kind.TIMER, 2, 1, color = 2),
+        Tile("today-focus", Kind.FOCUS, 2, 1, color = 1),
+        Tile("today-screen", Kind.SCREENTIME, 4, 1, color = 4),
+    )
+
     // Colour indexes follow the Amber Signal order: 0 amber, 1 vermilion, 2 sage, 3 sky, 4 bone.
     fun layout(roles: Map<String, String>): List<Tile> = listOf(
         Tile("clock", Kind.CLOCK, 3, 3, color = 0),

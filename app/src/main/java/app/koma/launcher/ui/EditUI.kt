@@ -133,7 +133,7 @@ fun GridSheet(state: HomeState) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 BasicText("GRID SIZE", style = dispStyle(pal.onGround, 22))
-                BasicText("${prefs.gridCols} ACROSS / ${prefs.gridRows} ROWS ON SCREEN", style = monoStyle(pal.onGround.copy(alpha = 0.6f), 10))
+                BasicText(if (state.today) "${state.gridCols} ACROSS" else "${state.gridCols} ACROSS / ${state.gridRows} ROWS ON SCREEN", style = monoStyle(pal.onGround.copy(alpha = 0.6f), 10))
             }
             Pill("DONE", pal.tiles[0], pal.ink, height = 36, onClick = close)
         }
@@ -142,8 +142,9 @@ fun GridSheet(state: HomeState) {
             "GRID",
             hint = "The home screen still scrolls, so you can keep adding rows.",
         ) {
-            Dropdown(listOf("4" to "4 COLUMNS", "5" to "5 COLUMNS", "6" to "6 COLUMNS"), prefs.gridCols.toString(), "Across") { prefs.gridCols = it.toInt() }
-            Dropdown(listOf("8" to "8 ROWS", "9" to "9 ROWS", "10" to "10 ROWS"), prefs.gridRows.toString(), "Rows on screen") { prefs.gridRows = it.toInt() }
+            Dropdown(listOf("4" to "4 COLUMNS", "5" to "5 COLUMNS", "6" to "6 COLUMNS"), state.gridCols.toString(), "Across") { if (state.today) prefs.todayCols = it.toInt() else prefs.gridCols = it.toInt() }
+            // The Today home sizes its rows like its columns, so rows on screen only apply to the classic home.
+            if (!state.today) Dropdown(listOf("8" to "8 ROWS", "9" to "9 ROWS", "10" to "10 ROWS"), prefs.gridRows.toString(), "Rows on screen") { prefs.gridRows = it.toInt() }
         }
         Group("GAPS") {
             SwitchRow("Keep a gap when removing", "", prefs.keepGaps) { prefs.keepGaps = it }
@@ -151,9 +152,9 @@ fun GridSheet(state: HomeState) {
         Group("PREVIEW") {
             GroupPad {
                 Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    repeat(prefs.gridRows) { r ->
+                    repeat(state.gridRows) { r ->
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-                            repeat(prefs.gridCols) { c ->
+                            repeat(state.gridCols) { c ->
                                 Box(Modifier.weight(1f).height(10.dp).clip(RoundedCornerShape(3.dp)).background(pal.tiles[(r + c) % pal.tiles.size].copy(alpha = 0.85f)))
                             }
                         }
@@ -194,7 +195,7 @@ fun TileSheet(state: HomeState, tile: Tile) {
             Pill("DONE", pal.tiles[0], pal.ink, height = 36, onClick = close)
         }
     }) {
-        val sizeChoices = tile.allowedSizes(state.prefs.gridCols)
+        val sizeChoices = tile.allowedSizes(state.gridCols)
         Group("LAYOUT") {
             if (sizeChoices.size > 1) {
                 ChipRow(sizeChoices.map { "${it.first}x${it.second}" to "${it.first} x ${it.second}" }, "${tile.w}x${tile.h}", title = "Size") { id ->
@@ -398,7 +399,7 @@ fun PickerSheet(state: HomeState) {
             .filter { stackOn == null || it != Kind.SPACE }
             .filter {
                 val tgt = state.tiles.firstOrNull { t -> t.id == stackOn }
-                stackOn == null || tgt == null || (it != Kind.ALL && it != Kind.GROUP && it != Kind.PHOTO && (tgt.w to tgt.h) in it.sizesFor(state.prefs.gridCols))
+                stackOn == null || tgt == null || (it != Kind.ALL && it != Kind.GROUP && it != Kind.PHOTO && (tgt.w to tgt.h) in it.sizesFor(state.gridCols))
             }.filter {
                 val t = q.trim()
                 t.isEmpty() || it.title.contains(t, ignoreCase = true) || it.desc.contains(t, ignoreCase = true)

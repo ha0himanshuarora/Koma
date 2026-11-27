@@ -11,19 +11,18 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
@@ -101,6 +100,7 @@ private fun Status(on: Boolean, onText: String = "ON", offText: String = "OFF") 
 @Composable
 fun SettingsScreen(state: HomeState) {
     when (state.settingsPage) {
+        "home" -> HomePage(state)
         "colour" -> ColourPage(state)
         "type" -> TypePage(state)
         "apps", "icons", "drawer", "hidden", "folders" -> AppsPage(state)
@@ -119,6 +119,50 @@ fun SettingsScreen(state: HomeState) {
     }
 }
 
+/**
+ * A tiny picture of the home screen as it is now: the real tiles, packed on the real grid, inside a phone-shaped frame.
+ * The Today type adds its clock strip on top, a music strip and a dock under the grid.
+ */
+@Composable
+private fun HomePreview(state: HomeState, modifier: Modifier) {
+    val pal = state.palette
+    val t = pal.tiles
+    val cols = state.gridCols
+    val cells = remember(state.tiles, cols) { pack(state.tiles, cols) }
+    val rows = maxOf(state.gridRows, cells.indices.maxOfOrNull { cells[it].row + state.tiles[it].h } ?: 1)
+    val pad = 6.dp
+    val gap = 2.dp
+    fun tone(c: app.koma.launcher.data.Tile, i: Int): Color = if (c.color >= 0) pal.all[c.color % pal.all.size] else t[i % t.size]
+    Column(modifier.clip(RoundedCornerShape(14.dp)).background(pal.ground).padding(pad), verticalArrangement = Arrangement.spacedBy(gap)) {
+        if (state.today) {
+            Box(Modifier.fillMaxWidth(0.6f).height(10.dp).clip(RoundedCornerShape(4.dp)).background(pal.onGround.copy(alpha = 0.85f)))
+        }
+        BoxWithConstraints(Modifier.fillMaxWidth().weight(1f)) {
+            val cw = (maxWidth - gap * (cols - 1)) / cols
+            val ch = (maxHeight - gap * (rows - 1)) / rows
+            cells.forEachIndexed { i, c ->
+                val tile = state.tiles[i]
+                val w = minOf(tile.w, cols)
+                Box(
+                    Modifier
+                        .offset(x = (cw + gap) * c.col, y = (ch + gap) * c.row)
+                        .size(width = cw * w + gap * (w - 1), height = ch * tile.h + gap * (tile.h - 1))
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(tone(tile, i)),
+                )
+            }
+        }
+        if (state.today) {
+            Box(Modifier.fillMaxWidth().height(9.dp).clip(RoundedCornerShape(4.dp)).background(t[4 % t.size]))
+            Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
+                Box(Modifier.weight(1f).height(8.dp).clip(CircleShape).background(pal.onGround.copy(alpha = 0.25f)))
+                Box(Modifier.size(8.dp).clip(RoundedCornerShape(3.dp)).background(pal.onGround.copy(alpha = 0.25f)))
+                Box(Modifier.size(8.dp).clip(RoundedCornerShape(3.dp)).background(pal.onGround.copy(alpha = 0.25f)))
+            }
+        }
+    }
+}
+
 @Composable
 private fun Hub(state: HomeState) {
     val ctx = LocalContext.current
@@ -128,53 +172,57 @@ private fun Hub(state: HomeState) {
         state.settingsPage = page
     }
     Page("Koma", "SETTINGS", onBack = { state.goHome() }) {
-        Box(Modifier.fillMaxWidth().clip(TileShape).background(t[0])) {
-            // Soft shapes in the palette's other colours.
-            Box(Modifier.align(Alignment.TopEnd).offset(x = 46.dp, y = (-56).dp).size(170.dp).clip(CircleShape).background(t[1 % t.size].copy(alpha = 0.55f)))
-            Box(Modifier.align(Alignment.TopEnd).offset(x = (-30).dp, y = 70.dp).size(54.dp).clip(CircleShape).background(t[2 % t.size].copy(alpha = 0.6f)))
-            Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    BasicText("Make it yours", style = dispStyle(pal.ink, 32))
-                    BasicText(
-                        pal.name + "  /  " + (if (state.dark) "DARK" else "LIGHT"),
-                        style = monoStyle(pal.ink.copy(alpha = 0.7f), 10, bold = true),
-                    )
-                }
-                Row(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(pal.ink.copy(alpha = 0.1f)).padding(horizontal = 14.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    state.apps.take(5).forEach { a -> AppIcon(state.icons, a, 40.dp, bg = pal.ink, ink = t[0], line = pal.ink) }
-                }
-                Row(Modifier.fillMaxWidth().height(12.dp).clip(CircleShape).border(1.5.dp, pal.ink.copy(alpha = 0.45f), CircleShape)) {
-                    t.take(6).forEach { Box(Modifier.weight(1f).fillMaxHeight().background(it)) }
-                }
-            }
-        }
+        PageHero(
+            "",
+            "Koma",
+            "",
+            t[0],
+            listOf(if (state.dark) "Dark" else "Light", pal.name),
+            leading = { HomePreview(state, Modifier.width(78.dp).height(150.dp)) },
+        )
         Group("HOME") {
-            ListRow("Layout", "${state.prefs.gridCols} x ${state.prefs.gridRows} grid", "widget", t[2 % t.size], onClick = {
-                state.goHome()
-                state.startEdit()
-            })
+            ListRow("Home", (if (state.today) "Today" else "Classic") + " / layout, looks, cards", "widget", t[2 % t.size], onClick = { go("home") })
+        }
+        Group("CARDS") {
             ListRow("Weather", "", "sun", t[1 % t.size], onClick = { go("weather") })
             ListRow("Music", "", "music", t[2 % t.size], onClick = { go("music") })
             ListRow("Calendar", "", "cal", t[1 % t.size], onClick = { go("calendar") })
+            ListRow("Fonts", Fonts.choices.firstOrNull { it.first == state.prefs.font }?.second ?: "Koma default", "type", t[1 % t.size], onClick = { go("type") })
             ListRow("Search", (Engines.all.firstOrNull { it.first == state.prefs.engine }?.second?.first ?: "") + ", swipe up to search", "search", t[4 % t.size], onClick = { go("search") })
+        }
+        Group("APPS AND PHONE") {
+            ListRow("Apps", "${state.apps.size} apps / " + (IconStyles.styles.firstOrNull { it.first == state.prefs.iconStyle }?.second ?: "Default"), "all", t[2 % t.size], onClick = { go("apps") })
+            ListRow("System", "", "settings", t[3 % t.size], onClick = { go("system") })
+        }
+    }
+}
+
+/** Everything about the home screen: its type, layout and look, and the cards that feed it. */
+@Composable
+private fun HomePage(state: HomeState) {
+    val pal = state.palette
+    val t = pal.tiles
+    fun go(page: String) {
+        state.settingsPage = page
+    }
+    Page("Home", "SETTINGS", onBack = { state.settingsPage = "" }) {
+        PageHero(
+            "HOME SCREEN",
+            if (state.today) "Today" else "Classic",
+            if (state.today) "Clock, three cards, a music strip and a dock." else "The free grid, ${state.gridCols} x ${state.gridRows}.",
+            t[2 % t.size],
+        )
+        Group("HOME SCREEN", hint = "Classic is the free grid. Today puts the clock, three cards, a music strip and a dock with two components you choose on the screen. Each keeps its own components.") {
+            Dropdown(listOf("classic" to "CLASSIC", "today" to "TODAY"), state.prefs.homeType, "Home screen type") { state.setHomeType(it) }
+            ListRow("Layout", if (state.today) "${state.gridCols} across" else "${state.gridCols} x ${state.gridRows} grid", "widget", t[2 % t.size], onClick = {
+                state.goHome()
+                state.startEdit()
+            })
+            ListRow("Looks", state.looks.size.let { if (it == 0) "" else "$it saved" }, "palette", t[4 % t.size], onClick = { go("looks") })
+            ListRow("Theme", if (state.prefs.follow) "Following your wallpaper" else pal.name, "palette", t[0 % t.size], onClick = { go("colour") })
         }
         Group("GESTURES") {
             ListRow("Home screen", "", "all", t[3 % t.size], onClick = { go("gestures") })
-        }
-        Group("LOOK") {
-            ListRow("Looks", state.looks.size.let { if (it == 0) "" else "$it saved" }, "palette", t[4 % t.size], onClick = { go("looks") })
-            ListRow("Theme", if (state.prefs.follow) "Following your wallpaper" else pal.name, "palette", t[0 % t.size], onClick = { go("colour") })
-            ListRow("Fonts", Fonts.choices.firstOrNull { it.first == state.prefs.font }?.second ?: "Koma default", "type", t[1 % t.size], onClick = { go("type") })
-        }
-        Group("APPS") {
-            ListRow("Apps", "${state.apps.size} apps / " + (IconStyles.styles.firstOrNull { it.first == state.prefs.iconStyle }?.second ?: "Default"), "all", t[2 % t.size], onClick = { go("apps") })
-        }
-        Group("PHONE") {
-            ListRow("System", "", "settings", t[3 % t.size], onClick = { go("system") })
         }
     }
 }
@@ -276,7 +324,7 @@ private fun ColourPage(state: HomeState) {
         }
     }
     val t = pal.tiles
-    Page("Theme", "SETTINGS / LOOK", onBack = { state.settingsPage = "" }) {
+    Page("Theme", "SETTINGS / HOME", onBack = { state.settingsPage = "home" }) {
         PageHero("USING NOW", pal.name, sourceText, pal.tiles[0], listOf(if (state.dark) "Dark" else "Light"))
 
         Group {
@@ -373,19 +421,13 @@ private fun ColourPage(state: HomeState) {
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun FlowRowOf(content: @Composable () -> Unit) {
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) { content() }
-}
-
 // ---- fonts and clock ---------------------------------------------------------------------------
 
 @Composable
 private fun TypePage(state: HomeState) {
     val pal = state.palette
     val prefs = state.prefs
-    Page("Fonts", "SETTINGS / LOOK", onBack = { state.settingsPage = "" }) {
+    Page("Fonts", "SETTINGS", onBack = { state.settingsPage = "" }) {
         PageHero("USING NOW", Fonts.choices.firstOrNull { it.first == prefs.font }?.second ?: "Koma default", "Applies everywhere in Koma.", pal.tiles[2 % pal.tiles.size])
         FontPicker(state, prefs.font, emptyList()) { state.setFont(it) }
         Group("TEXT SIZE") {
@@ -518,7 +560,7 @@ internal fun ClockFontSettings(state: HomeState, onBack: () -> Unit) {
 @Composable
 private fun WeatherPage(state: HomeState) {
     val pal = state.palette
-    Page("Weather", "SETTINGS / HOME", onBack = { state.settingsPage = "" }) {
+    Page("Weather", "SETTINGS", onBack = { state.settingsPage = "" }) {
         PageHero("WEATHER TILE", "Local forecast", "From Open-Meteo. Only rounded coordinates are sent.", state.palette.tiles[1 % state.palette.tiles.size])
         WeatherOptions(state)
         Group("THE CAT") {
@@ -550,7 +592,7 @@ private fun MusicStylePage(state: HomeState) {
     val pal = state.palette
     val prefs = state.prefs
     val sample = app.koma.launcher.data.NowPlaying("Vaaroon forever", "Anand Bhaskar", true, "", position = 70_000L, duration = 200_000L)
-    Page("Music", "SETTINGS / LOOK", onBack = { state.settingsPage = "" }) {
+    Page("Music", "SETTINGS", onBack = { state.settingsPage = "" }) {
         PageHero("MUSIC STYLE", musicStyles.firstOrNull { it.first == prefs.musicStyle }?.second ?: "", "Tap a style to use it on every music tile.")
         Group("MUSIC STYLE") {
             GroupPad {
@@ -586,7 +628,7 @@ private fun MusicStylePage(state: HomeState) {
 private fun GesturesPage(state: HomeState) {
     val gest = state.homeGestures()
     val needs = gest.values.any { it in setOf("lock", "shade", "quick", "recents", "shot", "power") }
-    Page("Gestures", "SETTINGS", onBack = { state.settingsPage = "" }) {
+    Page("Gestures", "SETTINGS / HOME", onBack = { state.settingsPage = "home" }) {
         PageHero("HOME SCREEN", "${Gestures.homeNames.count { (k, _) -> (gest[k] ?: "").isNotEmpty() }} of ${Gestures.homeNames.size} set", "Swipes and taps on empty space.", state.palette.tiles[3 % state.palette.tiles.size])
         Group("HOME SCREEN", hint = if (needs) "System actions need Koma switched on in Accessibility settings." else null) {
             Gestures.homeNames.forEach { (key, title) ->
@@ -624,7 +666,7 @@ private fun LooksPage(state: HomeState) {
             if (!state.stagePickedWall(uri)) android.widget.Toast.makeText(ctx, "Could not read that picture", android.widget.Toast.LENGTH_SHORT).show()
         }
     }
-    Page("Looks", "SETTINGS / LOOK", onBack = { state.settingsPage = "" }) {
+    Page("Looks", "SETTINGS / HOME", onBack = { state.settingsPage = "home" }) {
         PageHero("YOUR LOOKS", if (state.looks.isEmpty()) "None saved yet" else "${state.looks.size} saved", "Tap a look to put it on.", t[4 % t.size])
         Group("YOUR LOOKS") {
             if (state.looks.isEmpty()) GroupPad { BasicText("Nothing saved yet.", style = bodyStyle(pal.onGround.copy(alpha = 0.7f), 14)) }
@@ -946,7 +988,7 @@ private fun CalendarPage(state: HomeState) {
     val cals by produceState(emptyList<CalInfo>(), state.tick, granted) {
         value = if (granted) withContext(Dispatchers.IO) { CalendarRepo.calendars(ctx) } else emptyList()
     }
-    Page("Calendar", "SETTINGS / HOME", onBack = { state.settingsPage = "" }) {
+    Page("Calendar", "SETTINGS", onBack = { state.settingsPage = "" }) {
         if (!granted) {
             BasicText("Koma reads the calendars already on your phone: Google, Samsung, Outlook, holidays and anything else synced.", style = bodyStyle(pal.onGround.copy(alpha = 0.7f), 14))
             Pill("ALLOW CALENDAR ACCESS", pal.tiles[0], pal.ink, Modifier.fillMaxWidth(), height = 48) { state.request(Manifest.permission.READ_CALENDAR) }
@@ -985,7 +1027,7 @@ private fun SearchPage(state: HomeState) {
     val pal = state.palette
     val prefs = state.prefs
     val ctx = LocalContext.current
-    Page("Search", "SETTINGS / HOME", onBack = { state.settingsPage = "" }) {
+    Page("Search", "SETTINGS", onBack = { state.settingsPage = "" }) {
         PageHero("SEARCH ENGINE", Engines.all.firstOrNull { it.first == state.prefs.engine }?.second?.first ?: "Web", "Apps and people first, then the web.", state.palette.tiles[4 % state.palette.tiles.size])
         SearchPreview(Engines.all.firstOrNull { it.first == prefs.engine }?.second?.first ?: "the web")
         Group("OPENING SEARCH") {

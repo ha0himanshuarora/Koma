@@ -58,8 +58,9 @@ class PendingWidget(val id: Int, val info: AppWidgetProviderInfo, val stage: Str
 
 /** Everything the home screen shows, plus the changes the user can make. Saved after every change. */
 class HomeState(private val context: Context) {
-    private val store = LayoutStore(context)
     private val sp = context.getSharedPreferences("koma", Context.MODE_PRIVATE)
+    private fun layoutFile(type: String) = if (type == "today") "layout_today.json" else "layout.json"
+    private var store = LayoutStore(context, layoutFile(sp.getString("home_type", "classic") ?: "classic"))
     private val library = Library(context)
 
     val prefs = Prefs(sp)
@@ -71,8 +72,70 @@ class HomeState(private val context: Context) {
     private val layoutVersion = 3
     private var seeded = sp.getInt("seed", 0) >= layoutVersion
 
-    var tiles by mutableStateOf(if (seeded) store.load() else emptyList())
+    var tiles by mutableStateOf(
+        if (!seeded) emptyList()
+        else if (!store.exists() && sp.getString("home_type", "classic") == "today") Defaults.todayLayout()
+        else store.load()
+    )
         private set
+
+    /**
+     * The two buttons on the Today dock, each a 1x1 component saved as a tile. Empty until one is changed; until then
+     * the dock shows the phone's default phone and camera apps (see [dockTile]).
+     */
+    var dock by mutableStateOf(loadDock())
+        private set
+    /** The dock button being changed (0 or 1), while its chooser is open. */
+    var dockPick by mutableStateOf<Int?>(null)
+
+    private fun loadDock(): List<Tile> = try {
+        val raw = sp.getString("dock_tiles", "") ?: ""
+        if (raw.isBlank()) emptyList() else LayoutStore.fromJson(org.json.JSONArray(raw)).take(2)
+    } catch (e: Exception) {
+        emptyList()
+    }
+
+    /** What dock button [i] holds: the saved component, else the phone's default phone (0) or camera (1). */
+    fun dockTile(i: Int, roles: Map<String, String>): Tile {
+        dock.getOrNull(i)?.let { return it }
+        val old = if (i == 0) prefs.dock1 else prefs.dock2
+        val role = if (i == 0) "PHONE" else "CAM"
+        val glyph = if (i == 0) "phone" else "cam"
+        return Tile("dock-$i", Kind.APP, 1, 1, arg = old.ifEmpty { roles[role] ?: "" }, label = if (old.isEmpty()) role else "", glyph = if (old.isEmpty()) glyph else "", color = i)
+    }
+
+    fun setDock(i: Int, tile: Tile) {
+        if (i !in 0..1) return
+        val roles = Defaults.resolveRoles(context.packageManager, apps)
+        dock = (0..1).map { if (it == i) tile.copy(id = "dock-$i", w = 1, h = 1) else dockTile(it, roles) }
+        sp.edit().putString("dock_tiles", LayoutStore.toJson(dock).toString()).apply()
+    }
+
+    fun setDockApp(i: Int, key: String) = setDock(i, Tile("dock-$i", Kind.APP, 1, 1, arg = key, color = i))
+
+    /** True while the Today home type is in use. */
+    val today: Boolean get() = prefs.homeType == "today"
+    /** Columns across and rows on screen of whichever home type is showing. */
+    val gridCols: Int get() = if (today) prefs.todayCols else prefs.gridCols
+    val gridRows: Int get() = prefs.gridRows
+
+    /**
+     * Switches between the two home types. Each keeps its own tiles in its own file, so nothing in one is changed by
+     * using the other. The first time Today is chosen it starts from [Defaults.todayLayout].
+     */
+    fun setHomeType(type: String) {
+        if (type == prefs.homeType || (type != "classic" && type != "today")) return
+        if (edit) finishEdit()
+        save()
+        prefs.homeType = type
+        store = LayoutStore(context, layoutFile(type))
+        val fresh = !store.exists()
+        tiles = if (fresh) Defaults.todayLayout() else store.load()
+        if (fresh) save()
+        selectedId = null
+        sheetId = null
+        stackIndex.clear()
+    }
     var apps by mutableStateOf<List<AppInfo>>(emptyList())
         private set
 
@@ -583,6 +646,7 @@ class HomeState(private val context: Context) {
         taskEditId != null -> { closeTaskEditor(); true }
         selectedId != null -> { selectedId = null; true }
         screen == Screen.Settings && (settingsPage == "privacy" || settingsPage == "permissions") -> { settingsPage = "about"; true }
+        screen == Screen.Settings && settingsPage in setOf("colour", "looks", "gestures") -> { settingsPage = "home"; true }
         screen == Screen.Settings && settingsPage == "about" -> { settingsPage = "system"; true }
         screen == Screen.Settings && settingsPage.isNotEmpty() -> { settingsPage = ""; true }
         fromHub && screen != Screen.Apps -> { fromHub = false; pick = null; screen = Screen.Apps; true }
@@ -700,7 +764,7 @@ class HomeState(private val context: Context) {
     fun stackOnto(dragId: String, targetId: String) {
         val d = tiles.firstOrNull { it.id == dragId } ?: return
         val t = tiles.firstOrNull { it.id == targetId } ?: return
-        if (!canStack(d, t, prefs.gridCols)) return
+        if (!canStack(d, t, gridCols)) return
         val incoming = if (d.kind == Kind.STACK) d.children() else listOf(d)
         tiles = tiles.filterNot { it.id == dragId }
         val kids = if (t.kind == Kind.STACK) t.children() else listOf(t)
@@ -862,7 +926,7 @@ class HomeState(private val context: Context) {
     suspend fun resetLayout() {
         val roles = withContext(Dispatchers.Default) { Defaults.resolveRoles(context.packageManager, apps) }
         tiles.filter { it.kind == Kind.WIDGET || it.kind == Kind.STACK }.forEach { releaseWidgets(it) }
-        tiles = Defaults.layout(roles)
+        tiles = if (today) Defaults.todayLayout() else Defaults.layout(roles)
         save()
     }
 

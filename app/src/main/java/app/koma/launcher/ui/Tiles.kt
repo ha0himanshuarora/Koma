@@ -43,9 +43,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.asAndroidBitmap
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.drawText
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.requiredSize
@@ -241,7 +239,7 @@ private fun zoneLabel(now: LocalDateTime): String {
 
 /** Time that ticks every second (analog and mono styles) or every minute. */
 @Composable
-private fun rememberTicker(seconds: Boolean): State<LocalDateTime> = produceState(LocalDateTime.now(), seconds) {
+internal fun rememberTicker(seconds: Boolean): State<LocalDateTime> = produceState(LocalDateTime.now(), seconds) {
     while (true) {
         awaitVisible()
         val t = LocalDateTime.now()
@@ -316,7 +314,7 @@ internal fun FitText(text: String, style: TextStyle, modifier: Modifier = Modifi
     FitText(AnnotatedString(text), style, modifier, lines, align)
 
 /** A tight, centred line box so big numbers fill the space instead of floating in it. */
-private fun tight(font: FontFamily, color: Color, tracking: Float = -0.03f, lineHeight: Float = 0.9f) = TextStyle(
+internal fun tight(font: FontFamily, color: Color, tracking: Float = -0.03f, lineHeight: Float = 0.9f) = TextStyle(
     fontFamily = font,
     fontWeight = FontWeight.Normal,
     fontSynthesis = FontSynthesis.None,
@@ -1008,7 +1006,7 @@ fun GlyphIcon(glyph: String, size: Dp, bg: Color, ink: Color, line: Color) {
 
 /** An app icon cut out and forced into one colour so it matches the tile. */
 @Composable
-private fun InkIcon(icons: IconCache, app: AppInfo?, ink: Color, size: Dp) {
+internal fun InkIcon(icons: IconCache, app: AppInfo?, ink: Color, size: Dp) {
     val sig = LocalIconCfg.current.sig
     val icon by produceState<app.koma.launcher.data.Icon?>(null, app?.key, sig) {
         value = app?.let { withContext(Dispatchers.Default) { icons.silhouette(it) } }
@@ -1660,7 +1658,7 @@ private fun MusicStyled(
         }
     }
     Box(Modifier.fillMaxSize()) {
-    if (backdrop && photoArt != null) {
+    if (photoArt != null && backdrop) {
         Image(photoArt.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         // A wash in the opposite colour to the text, so text stays readable on busy or mixed pictures.
         Box(Modifier.fillMaxSize().background(if (light == true) Color.White.copy(alpha = 0.5f) else Color.Black.copy(alpha = 0.5f)))

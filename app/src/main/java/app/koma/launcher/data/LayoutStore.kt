@@ -6,8 +6,10 @@ import org.json.JSONObject
 import java.io.File
 
 /** Saves the tile list as a small JSON file. Uses org.json from the platform, so no extra dependency. */
-class LayoutStore(context: Context) {
-    private val file = File(context.filesDir, "layout.json")
+class LayoutStore(context: Context, fileName: String = "layout.json") {
+    private val file = File(context.filesDir, fileName)
+
+    fun exists() = file.exists()
 
     fun load(): List<Tile> {
         if (!file.exists()) return emptyList()
@@ -19,7 +21,7 @@ class LayoutStore(context: Context) {
     }
 
     fun save(tiles: List<Tile>) {
-        val tmp = File(file.parentFile, "layout.json.tmp")
+        val tmp = File(file.parentFile, file.name + ".tmp")
         tmp.writeText(toJson(tiles).toString())
         tmp.renameTo(file)
     }
