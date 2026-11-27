@@ -399,7 +399,6 @@ class KomaFocusService : AccessibilityService() {
         try {
             val sp = getSharedPreferences("koma", Context.MODE_PRIVATE)
             val ring = sp.getString("limit_style", "line") == "ring"
-            val left = sp.getString("limit_side", "right") == "left"
             val w = wm ?: (getSystemService(Context.WINDOW_SERVICE) as android.view.WindowManager).also { wm = it }
             val d = resources.displayMetrics.density
             val statusId = resources.getIdentifier("status_bar_height", "dimen", "android")
@@ -435,10 +434,8 @@ class KomaFocusService : AccessibilityService() {
                         x = cam.centerX() - box / 2
                         y = cam.centerY() - box / 2
                     } else {
-                        // No camera hole: beside the middle of the status bar, where no app content is.
-                        val cx = resources.displayMetrics.widthPixels / 2
-                        val gap = (10 * d).toInt()
-                        x = if (left) cx - gap - box else cx + gap
+                        // No camera hole reported: in the middle of the status bar, where no app content is.
+                        x = resources.displayMetrics.widthPixels / 2 - box / 2
                         y = ((statusH - box) / 2).coerceAtLeast(0)
                     }
                 } else {

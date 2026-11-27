@@ -34,6 +34,11 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.collectAsState
@@ -249,34 +254,114 @@ internal fun rememberTicker(seconds: Boolean): State<LocalDateTime> = produceSta
     }
 }
 
+/**
+ * An analog dial: a soft face, minute ticks, bars for the hours (numerals at 12, 3, 6 and 9 and a date window once the dial
+ * is big enough), rounded hands with a tail, and a seconds hand in the accent colour with an arc tracing the minute.
+ */
 @Composable
-internal fun AnalogFace(now: LocalDateTime, ink: Color, accent: Color, modifier: Modifier) {
+internal fun AnalogFace(now: LocalDateTime, ink: Color, accent: Color, modifier: Modifier, hole: Color = accent) {
+    val measurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+    val font = Fonts.Clock
+    val dayText = now.format(DateTimeFormatter.ofPattern("EEE d", Locale.getDefault())).uppercase()
     Canvas(modifier) {
         val r = minOf(this.size.width, this.size.height) / 2f - 3f
         val c = center
-        drawCircle(ink, r, c, style = Stroke(width = r * 0.045f))
-        for (i in 0 until 12) {
-            val a = Math.toRadians(i * 30.0 - 90.0)
-            val dir = Offset(cos(a).toFloat(), sin(a).toFloat())
-            val long = i % 3 == 0
-            drawLine(ink, c + dir * (r * (if (long) 0.72f else 0.8f)), c + dir * (r * 0.9f), strokeWidth = if (long) r * 0.06f else r * 0.03f, cap = StrokeCap.Round)
-        }
-        fun hand(deg: Double, len: Float, width: Float, col: Color) {
+        val rich = r > 100f
+        fun at(deg: Double, dist: Float): Offset {
             val a = Math.toRadians(deg - 90.0)
-            drawLine(col, c, c + Offset(cos(a).toFloat(), sin(a).toFloat()) * (r * len), strokeWidth = width, cap = StrokeCap.Round)
+            return c + Offset(cos(a).toFloat(), sin(a).toFloat()) * dist
         }
-        val min = now.minute + now.second / 60.0
-        hand(((now.hour % 12) + min / 60.0) * 30.0, 0.5f, r * 0.08f, ink)
-        hand(min * 6.0, 0.78f, r * 0.055f, ink)
-        hand(now.second * 6.0, 0.85f, r * 0.025f, accent)
-        drawCircle(ink, r * 0.06f, c)
+        drawCircle(ink.copy(alpha = 0.08f), r, c)
+        drawCircle(ink.copy(alpha = 0.9f), r, c, style = Stroke(width = r * 0.03f))
+        // The minute so far, drawn over the rim.
+        val sec = now.second + now.nano / 1_000_000_000.0
+        if (rich) drawArc(accent, -90f, (sec * 6.0).toFloat().coerceAtLeast(1f), false, Offset(c.x - r, c.y - r), androidx.compose.ui.geometry.Size(r * 2f, r * 2f), style = Stroke(r * 0.03f, cap = StrokeCap.Round))
+        if (rich) for (i in 0 until 60) {
+            if (i % 5 == 0) continue
+            drawLine(ink.copy(alpha = 0.4f), at(i * 6.0, r * 0.89f), at(i * 6.0, r * 0.94f), strokeWidth = r * 0.012f, cap = StrokeCap.Round)
+        }
+        for (i in 0 until 12) {
+            val quarter = i % 3 == 0
+            if (rich && quarter) {
+                val t = measurer.measure(if (i == 0) "12" else (i).toString(), tight(font, ink, 0f, 1f).copy(fontWeight = FontWeight.Bold, fontSize = with(density) { (r * 0.25f).toSp() }))
+                val p = at(i * 30.0, r * 0.72f)
+                drawText(t, topLeft = Offset(p.x - t.size.width / 2f, p.y - t.size.height / 2f))
+            } else {
+                drawLine(ink, at(i * 30.0, r * (if (quarter) 0.76f else 0.82f)), at(i * 30.0, r * 0.94f), strokeWidth = r * (if (quarter) 0.06f else 0.035f), cap = StrokeCap.Round)
+            }
+        }
+        if (rich) {
+            // The date, in a small window under the centre.
+            val t = measurer.measure(dayText, tight(font, ink, 0.02f, 1f).copy(fontWeight = FontWeight.Bold, fontSize = with(density) { (r * 0.11f).toSp() }))
+            val padX = r * 0.07f
+            val padY = r * 0.04f
+            val tl = Offset(c.x - t.size.width / 2f - padX, c.y + r * 0.3f)
+            drawRoundRect(ink.copy(alpha = 0.14f), tl, androidx.compose.ui.geometry.Size(t.size.width + padX * 2, t.size.height + padY * 2), androidx.compose.ui.geometry.CornerRadius(r * 0.06f))
+            drawText(t, topLeft = Offset(tl.x + padX, tl.y + padY))
+        }
+        fun hand(deg: Float, len: Float, tail: Float, width: Float, col: Color) {
+            rotate(deg, c) {
+                drawRoundRect(col, Offset(c.x - width / 2f, c.y - r * len), androidx.compose.ui.geometry.Size(width, r * (len + tail)), androidx.compose.ui.geometry.CornerRadius(width / 2f))
+            }
+        }
+        val min = now.minute + sec / 60.0
+        hand((((now.hour % 12) + min / 60.0) * 30.0).toFloat(), 0.5f, 0.1f, r * 0.08f, ink)
+        hand((min * 6.0).toFloat(), 0.78f, 0.1f, r * 0.055f, ink)
+        // Seconds: a thin hand with a counterweight and a small disc part way along.
+        rotate((sec * 6.0).toFloat(), c) {
+            drawRoundRect(accent, Offset(c.x - r * 0.012f, c.y - r * 0.86f), androidx.compose.ui.geometry.Size(r * 0.024f, r * 1.06f), androidx.compose.ui.geometry.CornerRadius(r * 0.012f))
+            drawCircle(accent, r * 0.045f, Offset(c.x, c.y - r * 0.6f))
+        }
+        drawCircle(ink, r * 0.075f, c)
+        drawCircle(hole, r * 0.038f, c)
+    }
+}
+
+/** How far a font's colon sits below the middle of its digits, as a fraction of the font size. Measured once per font. */
+private val colonLifts = HashMap<android.graphics.Typeface, Float>()
+
+private fun colonLiftFor(tf: android.graphics.Typeface): Float = colonLifts.getOrPut(tf) {
+    val p = android.graphics.Paint().apply {
+        typeface = tf
+        textSize = 100f
+    }
+    val colon = android.graphics.Rect()
+    val digit = android.graphics.Rect()
+    p.getTextBounds(":", 0, 1, colon)
+    p.getTextBounds("0", 0, 1, digit)
+    (((colon.top + colon.bottom) - (digit.top + digit.bottom)) / 2f / 100f).coerceIn(0f, 0.3f)
+}
+
+/** Raises each colon so its dots sit level with the middle of the digits instead of low in the line. */
+private fun liftColons(text: AnnotatedString, lift: Float): AnnotatedString {
+    if (lift < 0.005f || !text.text.contains(':')) return text
+    return buildAnnotatedString {
+        append(text)
+        text.text.forEachIndexed { i, c -> if (c == ':') addStyle(SpanStyle(baselineShift = androidx.compose.ui.text.style.BaselineShift(lift)), i, i + 1) }
+    }
+}
+
+/** One line of text that shrinks (to 60% at most) rather than wrap or be cut off when its box is too narrow. */
+@Composable
+internal fun ShrinkText(text: String, style: TextStyle, modifier: Modifier = Modifier, align: Alignment = Alignment.CenterStart) {
+    val measurer = rememberTextMeasurer()
+    BoxWithConstraints(modifier, contentAlignment = align) {
+        val mw = constraints.maxWidth
+        val fs = remember(text, style, mw) {
+            var f = style.fontSize.value
+            val floor = f * 0.6f
+            while (f > floor && measurer.measure(text, style.copy(fontSize = f.sp), maxLines = 1, softWrap = false).size.width > mw) f -= 0.5f
+            f
+        }
+        BasicText(text, style = style.copy(fontSize = fs.sp), maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
     }
 }
 
 /** Text that grows to fill its box exactly: the largest size at which it still fits in [lines] lines. */
 @Composable
 internal fun FitText(
-    text: AnnotatedString,
+    text0: AnnotatedString,
     style: TextStyle,
     modifier: Modifier = Modifier,
     lines: Int = 1,
@@ -284,6 +369,8 @@ internal fun FitText(
 ) {
     val measurer = rememberTextMeasurer()
     val density = LocalDensity.current
+    val tfc = rememberTypeface(style)
+    val text = remember(text0, tfc) { liftColons(text0, colonLiftFor(tfc)) }
     BoxWithConstraints(modifier, contentAlignment = align) {
         val mw = constraints.maxWidth
         val mh = constraints.maxHeight
@@ -345,6 +432,20 @@ fun ClockTile(w: Int, h: Int, bg: Color, ink0: Color, style: String, seconds: Bo
     val date = now.format(DateTimeFormatter.ofPattern("EEE d MMM", Locale.getDefault())).uppercase()
     val accent = pal.tiles[1 % pal.tiles.size]
     val pad = if (w >= 3) 16.dp else 12.dp
+    // Small text grows with the tile, so a big tile is not left with tiny captions.
+    val area = w * h
+    val lsz = when { area >= 12 -> 17; area >= 6 -> 13; else -> 10 }
+    val lab = label(ink, lsz.sp)
+    val labB = label(ink, (lsz + 2).sp, bold = true)
+    val gap = if (area >= 12) 10.dp else 6.dp
+    // Large tiles have room for more than the time. Each style uses these in its own way.
+    val lg = area >= 6
+    val wideL = w >= 3 && w >= h * 1.5f
+    val dayFull = now.format(DateTimeFormatter.ofPattern("EEEE", Locale.getDefault())).uppercase()
+    val monthFull = now.format(DateTimeFormatter.ofPattern("MMMM", Locale.getDefault())).uppercase()
+    val dayNum = now.dayOfMonth.toString()
+    val weekNo = now.get(java.time.temporal.IsoFields.WEEK_OF_WEEK_BASED_YEAR)
+    val dayPct = (now.hour * 60 + now.minute) * 100 / 1440
     val density = LocalDensity.current
     val display = Fonts.Clock
     val tone = Fonts.clockTone
@@ -364,25 +465,46 @@ fun ClockTile(w: Int, h: Int, bg: Color, ink0: Color, style: String, seconds: Bo
             w == 1 && h == 1 -> ToneFit("$hh:$mm", tone, ink, bg.opaque(), strokePx, timeStyle, Modifier.fillMaxSize(), align = Alignment.BottomStart)
             // Wide strip: time (or a small dial) left, date right.
             h == 1 -> Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                if (style == "analog") AnalogFace(now, ink, accent, Modifier.size(boxH))
+                if (style == "analog") AnalogFace(now, ink, accent, Modifier.size(boxH), bg.opaque())
                 else ToneFit(if (w >= 2) tm else "$hh:$mm", tone, ink, bg.opaque(), strokePx, timeStyle, Modifier.weight(1f).fillMaxHeight(), align = Alignment.CenterStart)
-                if (w >= 3 || style == "analog") BasicText(date, style = label(ink))
+                if (w >= 3 || style == "analog") BasicText(date, style = lab)
             }
-            style == "thin" -> Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                BasicText(date, style = label(ink))
+            style == "thin" -> Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(gap)) {
+                BasicText(date, style = lab)
                 ToneFit(tm, tone, ink, bg.opaque(), strokePx, timeStyle, Modifier.weight(1f).fillMaxWidth(), align = Alignment.CenterStart)
-                if (w >= 3) BasicText(now.format(DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.getDefault())).uppercase(), style = label(ink))
+                if (lg) Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    // A hairline for how much of the day has gone.
+                    Box(Modifier.fillMaxWidth().height(2.dp).background(ink.copy(alpha = 0.25f))) {
+                        Box(Modifier.fillMaxWidth(dayPct / 100f).fillMaxHeight().background(ink))
+                    }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        BasicText("WEEK $weekNo", style = lab)
+                        BasicText(if (w >= 3) "$dayPct% OF THE DAY" else "$dayPct%", style = lab, maxLines = 1)
+                    }
+                } else if (w >= 3) BasicText(now.format(DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.getDefault())).uppercase(), style = lab)
+            }
+            // A wide analog tile pairs the dial with the time in numbers.
+            style == "analog" && wideL -> Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                AnalogFace(now, ink, accent, Modifier.size(boxH), bg.opaque())
+                Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.SpaceBetween) {
+                    ShrinkText(zoneLabel(now), lab, Modifier.fillMaxWidth())
+                    FitText("$hh:$mm", tight(display, ink, -0.03f, 0.9f), Modifier.fillMaxWidth().weight(1f).padding(vertical = 6.dp), align = Alignment.CenterStart)
+                    ShrinkText(date, labB, Modifier.fillMaxWidth())
+                }
             }
             style == "analog" -> Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                BasicText(zoneLabel(now), style = label(ink))
-                AnalogFace(now, ink, accent, Modifier.weight(1f).fillMaxWidth())
+                ShrinkText(zoneLabel(now), lab, Modifier.fillMaxWidth())
+                AnalogFace(now, ink, accent, Modifier.weight(1f).fillMaxWidth(), bg.opaque())
             }
-            style == "mono" -> Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                BasicText(date, style = label(ink))
+            style == "mono" -> Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(gap)) {
+                BasicText(date, style = lab)
                 FitText("$hh:$mm", timeStyle, Modifier.weight(1f).fillMaxWidth(), align = Alignment.CenterStart)
+                if (lg) Box(Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(5.dp)).background(ink.copy(alpha = 0.18f))) {
+                    Box(Modifier.fillMaxWidth(now.second / 60f).fillMaxHeight().clip(RoundedCornerShape(5.dp)).background(ink))
+                }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    BasicText(":%02d".format(now.second), style = label(ink, 14.sp, bold = true))
-                    BasicText(zoneLabel(now), style = label(ink))
+                    BasicText(":%02d".format(now.second), style = label(ink, (lsz + 4).sp, bold = true))
+                    ShrinkText(zoneLabel(now), lab, Modifier.weight(1f).padding(start = 8.dp), Alignment.CenterEnd)
                 }
             }
             style == "words" -> {
@@ -393,24 +515,38 @@ fun ClockTile(w: Int, h: Int, bg: Color, ink0: Color, style: String, seconds: Bo
                 val ringFrom = if (lines.size == 3) lines[0].length + 1 else -1
                 val ringTo = if (lines.size == 3) ringFrom + lines[1].length else -1
                 Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    BasicText("IT IS", style = label(ink))
+                    BasicText("IT IS", style = lab)
                     OutlineFit(text, tight(display, ink, -0.02f, 1.0f), ink, stroke, Modifier.weight(1f).fillMaxWidth(), lines.size, Alignment.CenterStart) { i, _ -> i in ringFrom until ringTo }
+                    if (lg) ShrinkText("$dayFull  \u00B7  $dayNum $monthFull", lab, Modifier.fillMaxWidth())
                 }
             }
             style == "flip" -> Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    (if (seconds) listOf(hh, mm, ss) else listOf(hh, mm)).forEach { d ->
-                        Box(Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(14.dp)).background(ink), contentAlignment = Alignment.Center) {
-                            FitText(d, tight(display, bg.opaque(), -0.03f, 1.0f), Modifier.fillMaxSize().padding(10.dp), align = Alignment.Center)
-                            Box(Modifier.fillMaxWidth().height(2.dp).background(bg.copy(alpha = 0.35f)))
+                // Cards stay card-shaped and sit together in the middle, however wide the tile is.
+                BoxWithConstraints(Modifier.fillMaxWidth().weight(1f)) {
+                    val cards = if (seconds) listOf(hh, mm, ss) else listOf(hh, mm)
+                    // A 12-hour clock gets the little AM / PM tab a flip clock has beside the cards.
+                    val tab = !is24 && lg
+                    val cw = minOf((maxWidth - 8.dp * (cards.size - 1) - (if (tab) 42.dp else 0.dp)) / cards.size, maxHeight * 0.82f)
+                    Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)) {
+                        cards.forEach { d ->
+                            FlipCard(d, ink, bg.opaque(), tight(display, bg.opaque(), -0.03f, 1.0f), Modifier.width(cw).fillMaxHeight())
+                        }
+                        if (tab) Column(Modifier.width(34.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            listOf("AM", "PM").forEachIndexed { i, t ->
+                                val on = (now.hour >= 12) == (i == 1)
+                                Box(Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(10.dp)).background(if (on) ink else ink.copy(alpha = 0.12f)), contentAlignment = Alignment.Center) {
+                                    BasicText(t, style = label(if (on) bg.opaque() else ink, (lsz - 3).sp, bold = true), maxLines = 1)
+                                }
+                            }
                         }
                     }
                 }
-                if (h >= 2) BasicText(date, style = label(ink))
+                if (h >= 2) BasicText(date, style = lab)
             }
             // Rings: the hour, the minute and (with seconds) the second each fill their own ring.
-            style == "ring" -> Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                BasicText(date, style = label(ink))
+            style == "ring" -> Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+              Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(gap)) {
+                BasicText(date, style = lab)
                 Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                     Canvas(Modifier.fillMaxHeight().aspectRatio(1f)) {
                         val sw = this.size.minDimension * 0.07f
@@ -426,17 +562,29 @@ fun ClockTile(w: Int, h: Int, bg: Color, ink0: Color, style: String, seconds: Bo
                     }
                     FitText(AnnotatedString("$hh\n$mm"), tight(display, ink, -0.03f, 0.9f), Modifier.fillMaxSize(if (seconds) 0.3f else 0.38f), lines = 2, align = Alignment.Center)
                 }
+              }
+              if (wideL) Column(Modifier.weight(0.8f).fillMaxHeight(), verticalArrangement = Arrangement.Center) {
+                  // How far through its hour, its minute and (with seconds) its second each ring has gone.
+                  val legend = listOf("HOUR" to ((now.hour % 12) * 60 + now.minute) * 100 / 720, "MINUTE" to (now.minute * 60 + now.second) * 100 / 3600) +
+                      (if (seconds) listOf("SECOND" to now.second * 100 / 60) else emptyList())
+                  legend.forEach { (name, pct) ->
+                      Column(Modifier.padding(vertical = 5.dp)) {
+                          BasicText(name, style = label(ink.copy(alpha = 0.65f), (lsz - 2).sp, bold = true))
+                          BasicText("$pct%", style = labB)
+                      }
+                  }
+              }
             }
             // Binary: each digit of the time as four dots, the way a binary clock shows it.
             style == "binary" -> {
                 val digits = (hh.padStart(2, '0') + mm).map { it.digitToInt() }
                 Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    BasicText(date, style = label(ink))
+                    BasicText(date, style = lab)
                     Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         // What each row is worth: add up the lit dots in a column to read its digit.
                         Column(Modifier.fillMaxHeight().width(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             for (b in 3 downTo 0) Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
-                                BasicText("${1 shl b}", style = label(ink.copy(alpha = 0.6f), 8.sp, bold = true), maxLines = 1)
+                                BasicText("${1 shl b}", style = label(ink.copy(alpha = 0.6f), (lsz - 2).sp, bold = true), maxLines = 1)
                             }
                         }
                         digits.forEachIndexed { idx, d ->
@@ -451,10 +599,19 @@ fun ClockTile(w: Int, h: Int, bg: Color, ink0: Color, style: String, seconds: Bo
                             if (idx == 1) Spacer(Modifier.width(4.dp))
                         }
                     }
-                    BasicText("$hh:$mm", style = label(ink, 12.sp, bold = true))
+                    BasicText("$hh:$mm", style = labB)
                 }
             }
             // Split: the hour on a solid block, the minutes on a soft one.
+            style == "split" && wideL -> Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(18.dp)).background(ink), contentAlignment = Alignment.Center) {
+                    FitText(hh, tight(display, bg.opaque(), -0.03f, 1f), Modifier.fillMaxSize().padding(12.dp), align = Alignment.Center)
+                }
+                Box(Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(18.dp)).background(ink.copy(alpha = 0.14f)), contentAlignment = Alignment.Center) {
+                    FitText(if (seconds) "$mm:$ss" else mm, tight(display, ink, -0.03f, 1f), Modifier.fillMaxSize().padding(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 34.dp), align = Alignment.Center)
+                    BasicText(date, style = lab, modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 10.dp))
+                }
+            }
             style == "split" -> Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Box(Modifier.weight(1f).fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(ink), contentAlignment = Alignment.Center) {
                     FitText(hh, tight(display, bg.opaque(), -0.03f, 1f), Modifier.fillMaxSize().padding(8.dp), align = Alignment.Center)
@@ -462,13 +619,13 @@ fun ClockTile(w: Int, h: Int, bg: Color, ink0: Color, style: String, seconds: Bo
                 Box(Modifier.weight(1f).fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(ink.copy(alpha = 0.14f)), contentAlignment = Alignment.Center) {
                     FitText(if (seconds) "$mm:$ss" else mm, tight(display, ink, -0.03f, 1f), Modifier.fillMaxSize().padding(8.dp), align = Alignment.Center)
                 }
-                if (h >= 3) BasicText(date, style = label(ink))
+                if (h >= 3) BasicText(date, style = lab)
             }
             // Ruler: the time, over a minute ruler that slides as the minutes pass.
-            style == "ruler" -> Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                BasicText(date, style = label(ink))
+            style == "ruler" -> Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(gap)) {
+                BasicText(date, style = lab)
                 ToneFit(tm, tone, ink, bg.opaque(), strokePx, timeStyle, Modifier.weight(1f).fillMaxWidth(), align = Alignment.CenterStart)
-                Canvas(Modifier.fillMaxWidth().height(28.dp)) {
+                Canvas(Modifier.fillMaxWidth().height(if (area >= 6) 44.dp else 28.dp)) {
                     val n = 31
                     val step = this.size.width / (n - 1)
                     for (i in 0 until n) {
@@ -485,9 +642,9 @@ fun ClockTile(w: Int, h: Int, bg: Color, ink0: Color, style: String, seconds: Bo
             }
             // Day arc: the time big, and under it the sun's path across the day, a hump from midnight to midnight with the sun on it.
             style == "arc" -> Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                BasicText(date, style = label(ink))
+                BasicText(date, style = lab)
                 ToneFit(tm, tone, ink, bg.opaque(), strokePx, timeStyle, Modifier.weight(1f).fillMaxWidth(), align = Alignment.CenterStart)
-                Canvas(Modifier.fillMaxWidth().height(if (h >= 3) 64.dp else 44.dp)) {
+                Canvas(Modifier.fillMaxWidth().height(if (area >= 12) 96.dp else if (h >= 3) 64.dp else 44.dp)) {
                     val sw = 3.dp.toPx()
                     val sunR = 5.dp.toPx()
                     val left = sunR
@@ -523,12 +680,12 @@ fun ClockTile(w: Int, h: Int, bg: Color, ink0: Color, style: String, seconds: Bo
                     drawCircle(ink, sunR, sun)
                 }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    listOf("00", "06", "12", "18", "24").forEach { BasicText(it, style = label(ink.copy(alpha = 0.65f), 9.sp, bold = true)) }
+                    listOf("00", "06", "12", "18", "24").forEach { BasicText(it, style = label(ink.copy(alpha = 0.65f), (lsz - 1).sp, bold = true)) }
                 }
             }
             // Grid: today as 24 squares, one per hour. The hours that are over are filled, the current one is half.
-            style == "grid" -> Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                BasicText(date, style = label(ink))
+            style == "grid" -> Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(gap)) {
+                BasicText(date, style = lab)
                 Column(Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     for (row in 0 until 4) {
                         Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -543,11 +700,11 @@ fun ClockTile(w: Int, h: Int, bg: Color, ink0: Color, style: String, seconds: Bo
                         }
                     }
                 }
-                BasicText(tm, style = label(ink, 12.sp, bold = true))
+                BasicText(tm, style = labB)
             }
             // Segments: seven-segment digits, with the unlit segments left faintly visible like an old display.
-            style == "seg" -> Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                BasicText(date, style = label(ink))
+            style == "seg" -> Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(gap)) {
+                BasicText(date, style = lab)
                 val digits: List<Int?> = (hh.padStart(2, ' ') + mm).map { it.digitToIntOrNull() }
                 Canvas(Modifier.weight(1f).fillMaxWidth()) {
                     val gapF = 0.2f
@@ -586,8 +743,8 @@ fun ClockTile(w: Int, h: Int, bg: Color, ink0: Color, style: String, seconds: Bo
                 }
             }
             // Tide: the box fills up like water as the hour passes, with the time floating on it.
-            style == "tide" -> Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                BasicText(date, style = label(ink))
+            style == "tide" -> Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(gap)) {
+                BasicText(date, style = lab)
                 val level = ((now.minute * 60 + now.second) / 3600f).coerceIn(0.03f, 1f)
                 Box(Modifier.weight(1f).fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(ink.copy(alpha = 0.1f))) {
                     Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().fillMaxHeight(level).background(ink.copy(alpha = 0.26f)))
@@ -596,37 +753,64 @@ fun ClockTile(w: Int, h: Int, bg: Color, ink0: Color, style: String, seconds: Bo
                     }
                     ToneFit(tm, tone, ink, bg.opaque(), strokePx, timeStyle, Modifier.fillMaxSize().padding(10.dp), align = Alignment.Center)
                 }
-                BasicText("${now.minute} / 60 MIN", style = label(ink, 10.sp, bold = true))
+                BasicText("${now.minute} / 60 MIN", style = label(ink, lsz.sp, bold = true))
             }
             // Classic: the time sits low, with the date line under it.
             style == "classic" -> Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Bottom) {
                 ToneFit(tm, tone, ink, bg.opaque(), strokePx, timeStyle, Modifier.weight(1f).fillMaxWidth(), align = Alignment.BottomStart)
-                BasicText(now.format(DateTimeFormatter.ofPattern("EEE, MMM d", Locale.getDefault())), style = label(ink, 12.sp, bold = true), modifier = Modifier.padding(top = 4.dp))
+                if (lg) ShrinkText(now.format(DateTimeFormatter.ofPattern("EEEE, MMMM d", Locale.getDefault())), label(ink, (lsz + 3).sp, bold = true), Modifier.fillMaxWidth().padding(top = 6.dp))
+                else BasicText(now.format(DateTimeFormatter.ofPattern("EEE, MMM d", Locale.getDefault())), style = labB, modifier = Modifier.padding(top = 4.dp))
             }
-            // Line art: a huge outlined weekday behind a row of small facts.
+            // Line art: a huge weekday over a row of small facts.
             style == "wide" -> Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 FitText(
                     AnnotatedString(now.format(DateTimeFormatter.ofPattern("EEE", Locale.getDefault())).uppercase()),
                     tight(Fonts.Thin, ink, 0.02f, 0.9f), Modifier.weight(1f).fillMaxWidth(), align = Alignment.Center,
                 )
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    BasicText(tm, style = label(ink, 12.sp, bold = true))
-                    BasicText(now.format(DateTimeFormatter.ofPattern("MMM d", Locale.getDefault())).uppercase(), style = label(ink, 12.sp, bold = true))
+                    BasicText(tm, style = labB)
+                    BasicText(now.format(DateTimeFormatter.ofPattern("MMM d", Locale.getDefault())).uppercase(), style = labB)
                 }
             }
-            // Stack: hours over minutes, both solid.
-            style == "stack" -> Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                ToneFit(if (seconds) "$hh\n$mm\n$ss" else "$hh\n$mm", tone, ink, bg.opaque(), strokePx, tight(display, ink, -0.04f, 0.88f), Modifier.weight(1f).fillMaxWidth(),
-                    lines = if (seconds) 3 else 2, align = Alignment.CenterStart,
-                )
-                BasicText(date, style = label(ink))
+            // Stack: hours over minutes, both solid. A wide tile gives the date, as a big day number, the space beside them.
+            style == "stack" -> {
+                val stackText: @Composable (Modifier) -> Unit = { m ->
+                    ToneFit(if (seconds) "$hh\n$mm\n$ss" else "$hh\n$mm", tone, ink, bg.opaque(), strokePx, tight(display, ink, -0.04f, 0.88f), m,
+                        lines = if (seconds) 3 else 2, align = Alignment.CenterStart,
+                    )
+                }
+                if (wideL) Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    stackText(Modifier.weight(1f).fillMaxHeight())
+                    Column(Modifier.weight(0.9f).fillMaxHeight(), verticalArrangement = Arrangement.SpaceBetween) {
+                        ShrinkText(dayFull, labB, Modifier.fillMaxWidth())
+                        FitText(dayNum, tight(display, ink, -0.03f, 0.9f), Modifier.fillMaxWidth().weight(1f).padding(vertical = 8.dp), align = Alignment.CenterStart)
+                        ShrinkText(monthFull, labB, Modifier.fillMaxWidth())
+                    }
+                } else Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    stackText(Modifier.weight(1f).fillMaxWidth())
+                    BasicText(date, style = lab)
+                }
             }
             // Big hour: large hour with the minutes small on its baseline.
-            style == "sub" -> Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                BasicText(date, style = label(ink))
-                Row(Modifier.weight(1f).fillMaxWidth(), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    ToneFit(hh, tone, ink, bg.opaque(), strokePx, tight(display, ink, -0.05f, 0.86f), Modifier.weight(1.5f).fillMaxHeight(), align = Alignment.BottomStart)
-                    ToneFit(if (seconds) "$mm:$ss" else mm, tone, ink, bg.opaque(), strokePx, tight(display, ink, -0.03f, 0.9f), Modifier.weight(1f).fillMaxHeight(0.38f), align = Alignment.BottomStart, firstGroup = 1)
+            // Big hour: one line, the hour large and the minutes small beside it on the same baseline, so the two read as one time.
+            style == "sub" -> {
+                val flat = if (tone == "outline") "solid" else tone
+                val timeText = buildAnnotatedString {
+                    append(toneText(hh, flat, ink, strokePx, 0))
+                    append(" ")
+                    withStyle(SpanStyle(fontSize = 0.4.em)) { append(toneText(if (seconds) "$mm:$ss" else mm, flat, ink, strokePx, 1)) }
+                }
+                val timeStyle2 = tight(display, ink, -0.04f, 0.86f)
+                if (wideL) Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    FitText(timeText, timeStyle2, Modifier.weight(1.5f).fillMaxHeight(), align = Alignment.CenterStart)
+                    Column(Modifier.weight(0.8f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ShrinkText(dayFull, labB, Modifier.fillMaxWidth())
+                        ShrinkText("$dayNum $monthFull", lab, Modifier.fillMaxWidth())
+                        ShrinkText("WEEK $weekNo", lab, Modifier.fillMaxWidth())
+                    }
+                } else Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(gap)) {
+                    BasicText(date, style = lab)
+                    FitText(timeText, timeStyle2, Modifier.weight(1f).fillMaxWidth(), align = Alignment.BottomStart)
                 }
             }
             // Weekday: the day is the headline, the time sits underneath.
@@ -635,18 +819,22 @@ fun ClockTile(w: Int, h: Int, bg: Color, ink0: Color, style: String, seconds: Bo
                     now.format(DateTimeFormatter.ofPattern("EEE", Locale.getDefault())).replaceFirstChar { it.uppercase() } + ".",
                     tight(display, ink, -0.04f, 0.9f), Modifier.weight(1f).fillMaxWidth(), align = Alignment.CenterStart,
                 )
-                BasicText("$tm  \u00B7  " + now.format(DateTimeFormatter.ofPattern("MMM d", Locale.getDefault())), style = label(ink, 12.sp, bold = true))
+                if (lg) ShrinkText("$tm  \u00B7  $dayNum $monthFull", label(ink, (lsz + 3).sp, bold = true), Modifier.fillMaxWidth())
+                else BasicText("$tm  \u00B7  " + now.format(DateTimeFormatter.ofPattern("MMM d", Locale.getDefault())), style = labB)
             }
             // Day bar: time with a line showing how much of the day has gone.
             style == "bar" -> {
                 val frac = (now.hour * 60 + now.minute) / 1440f
                 Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    BasicText(date, style = label(ink))
+                    BasicText(date, style = lab)
                     ToneFit(tm, tone, ink, bg.opaque(), strokePx, timeStyle, Modifier.weight(1f).fillMaxWidth(), align = Alignment.CenterStart)
-                    Box(Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)).background(ink.copy(alpha = 0.2f))) {
-                        Box(Modifier.fillMaxWidth(frac).fillMaxHeight().clip(RoundedCornerShape(4.dp)).background(ink))
+                    Box(Modifier.fillMaxWidth().height(if (area >= 6) 14.dp else 8.dp).clip(RoundedCornerShape(7.dp)).background(ink.copy(alpha = 0.2f))) {
+                        Box(Modifier.fillMaxWidth(frac).fillMaxHeight().clip(RoundedCornerShape(7.dp)).background(ink))
                     }
-                    BasicText("DAY ${(frac * 100).toInt()}%", style = label(ink))
+                    if (lg) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        listOf("00", "06", "12", "18", "24").forEach { BasicText(it, style = label(ink.copy(alpha = 0.65f), (lsz - 1).sp, bold = true)) }
+                    }
+                    BasicText("DAY ${(frac * 100).toInt()}%", style = lab)
                 }
             }
             // Poster: hours solid, minutes outlined, stacked and sized to fill whatever space the tile has.
@@ -662,7 +850,7 @@ fun ClockTile(w: Int, h: Int, bg: Color, ink0: Color, style: String, seconds: Bo
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
                                 BasicText(
                                     now.format(DateTimeFormatter.ofPattern("EEE dd.MM", Locale.getDefault())).uppercase() + "\nLOCAL TIME",
-                                    style = label(ink, 11.sp),
+                                    style = label(ink, (lsz - 1).sp),
                                 )
                                 Glyph("arrow", ink, 32.dp, strokeWidth = 3f)
                             }
@@ -670,7 +858,7 @@ fun ClockTile(w: Int, h: Int, bg: Color, ink0: Color, style: String, seconds: Bo
                         OutlineFit(
                             if (seconds) "$hh\n$mm\n$ss" else "$hh\n$mm", tight(display, ink, -0.01f, 0.86f), ink, stroke, Modifier.weight(1f).fillMaxWidth(),
                         ) { i, _ -> i in (hh.length + 1) until (hh.length + 1 + mm.length) }
-                        if (!big || pic) BasicText(date, style = label(ink))
+                        if (!big || pic) BasicText(date, style = lab)
                     }
                     if (pic && photoDesign != "left") ClockPhoto(photo, ink, photoDesign, Modifier.weight(if (w >= 3) 0.8f else 0.7f).fillMaxHeight())
                 }
@@ -732,7 +920,10 @@ private fun renderOutline(look: OutlineLook, mask: BooleanArray, ink: Color, str
     look.lines.forEachIndexed { li, line ->
         val y = pad + li * look.lh + look.base
         line.forEachIndexed { ci, ch ->
-            if (ch != ' ') chars += Ch(ch.toString(), pad + look.paint.measureText(line, 0, ci), y, mask.getOrElse(idx + ci) { false })
+            if (ch != ' ') {
+                val lift = if (ch == ':') look.paint.textSize * colonLiftFor(look.paint.typeface ?: android.graphics.Typeface.DEFAULT) else 0f
+                chars += Ch(ch.toString(), pad + look.paint.measureText(line, 0, ci), y - lift, mask.getOrElse(idx + ci) { false })
+            }
         }
         idx += line.length + 1
     }
@@ -1397,7 +1588,7 @@ fun MusicTile(
     val cassetteLabel = pal.tiles[4 % pal.tiles.size]
     Box(Modifier.fillMaxSize().clip(TileShape).background(bg)) {
         when {
-            w >= 2 && h >= 2 && style != "tape" -> MusicStyled(style, design, w, bg, ink, title, artist, playing, now, onToggle, onNext, onPrevious, onSeek)
+            w >= 2 && style != "tape" -> MusicStyled(style, design, w, bg, ink, title, artist, playing, now, onToggle, onNext, onPrevious, onSeek)
             w >= 4 && h >= 2 -> Row(Modifier.fillMaxSize().padding(14.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 Cassette(Modifier.fillMaxHeight().weight(1f), cassetteBody, cassetteStripe, cassetteLabel, ink)
                 Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.SpaceBetween) {
@@ -1435,13 +1626,19 @@ fun MusicTile(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Column(Modifier.weight(1f).padding(end = 8.dp)) {
-                    BasicText("NOW PLAYING", style = label(ink, 9.sp))
+                // A 4x1 strip has room for the cassette on the left and all three controls on the right.
+                if (w >= 4) Cassette(Modifier.height(46.dp).width(72.dp), cassetteBody, cassetteStripe, cassetteLabel, ink)
+                Column(Modifier.weight(1f).padding(horizontal = if (w >= 4) 12.dp else 0.dp).padding(end = if (w >= 4) 0.dp else 8.dp)) {
+                    BasicText(if (playing) "NOW PLAYING" else "PAUSED", style = label(ink, 9.sp))
                     BasicText(title.uppercase(), style = display(15.sp, ink, (-0.01).em, 1f), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 3.dp))
                     BasicText(artist.uppercase(), style = label(ink, 9.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     SongProgress(now, ink, false, onSeek)
                 }
-                MusicBtn(40.dp, ink, bg.opaque(), if (playing) "pause" else "play", onToggle)
+                if (w >= 4) Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    MusicBtn(32.dp, ink, bg.opaque(), "prev", onPrevious)
+                    MusicBtn(40.dp, ink, bg.opaque(), if (playing) "pause" else "play", onToggle)
+                    MusicBtn(32.dp, ink, bg.opaque(), "next", onNext)
+                } else MusicBtn(40.dp, ink, bg.opaque(), if (playing) "pause" else "play", onToggle)
             }
             else -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 MusicBtn(44.dp, ink, bg.opaque(), if (playing) "pause" else "play", onToggle)
@@ -1615,9 +1812,10 @@ private fun ProgressRing(now: app.koma.launcher.data.NowPlaying?, playing: Boole
         }
     }
     val frac = if (playing && now != null && now.duration > 0L) (pos.toFloat() / now.duration).coerceIn(0f, 1f) else 0f
+    val strokeDp = (size.value * 0.075f).coerceIn(5f, 14f).dp
     Box(Modifier.size(size), contentAlignment = Alignment.Center) {
         Canvas(Modifier.fillMaxSize()) {
-            val sw = 6.dp.toPx()
+            val sw = strokeDp.toPx()
             val box = androidx.compose.ui.geometry.Size(this.size.width - sw, this.size.height - sw)
             drawArc(ink.copy(alpha = 0.22f), 0f, 360f, false, Offset(sw / 2, sw / 2), box, style = Stroke(sw))
             drawArc(ink, -90f, 360f * frac, false, Offset(sw / 2, sw / 2), box, style = Stroke(sw, cap = StrokeCap.Round))
@@ -1626,14 +1824,18 @@ private fun ProgressRing(now: app.koma.launcher.data.NowPlaying?, playing: Boole
     }
 }
 
-/** The alternative looks for a music tile of 2x2 or more. The tape look is in [MusicTile] itself. */
+/**
+ * The alternative looks for a music tile of 2x1 or more. Every layout is worked out from the room the tile really has:
+ * a short strip puts the picture, the names and a button in one row, a wide tile puts the picture beside the details,
+ * and a tall or square one stacks them. Sizes grow with the tile, so a large tile fills out instead of floating.
+ * The tape look is in [MusicTile] itself.
+ */
 @Composable
 private fun MusicStyled(
     style: String, design: String, w: Int, bg: Color, ink0: Color, title: String, artist: String, playing: Boolean,
     now: app.koma.launcher.data.NowPlaying?, onToggle: () -> Unit, onNext: () -> Unit, onPrevious: () -> Unit, onSeek: (Long) -> Unit,
 ) {
     val pal = LocalPalette.current
-    val wide = w >= 4
     // Backdrop design: the cover art fills the tile and the text turns black or white to suit it.
     val photoArt = now?.art
     val backdrop = style == "poster" && design == "cover" && photoArt != null
@@ -1642,131 +1844,168 @@ private fun MusicStyled(
     // Solid so the play button's glyph keeps its contrast; the scrim below evens out busy pictures.
     val ob = if (backdrop) (if (light == true) Color.White else Color(0xFF111111)) else bg.opaque()
     val status = if (playing) "NOW PLAYING" else "PAUSED"
-    @Composable
-    fun controls(big: Boolean, fg: Color = ink, bgc: Color = ob) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            MusicBtn(if (big) 36.dp else 32.dp, fg, bgc, "prev", onPrevious)
-            MusicBtn(if (big) 46.dp else 40.dp, fg, bgc, if (playing) "pause" else "play", onToggle)
-            MusicBtn(if (big) 36.dp else 32.dp, fg, bgc, "next", onNext)
-        }
-    }
-    @Composable
-    fun names(titleSize: Int, lines: Int) {
-        Column {
-            BasicText(title.uppercase(), style = display(titleSize.sp, ink, (-0.01).em, 1f), maxLines = lines, overflow = TextOverflow.Ellipsis)
-            BasicText(artist.uppercase(), style = label(ink, 10.sp), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 3.dp))
-        }
-    }
-    Box(Modifier.fillMaxSize()) {
-    if (photoArt != null && backdrop) {
-        Image(photoArt.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-        // A wash in the opposite colour to the text, so text stays readable on busy or mixed pictures.
-        Box(Modifier.fillMaxSize().background(if (light == true) Color.White.copy(alpha = 0.5f) else Color.Black.copy(alpha = 0.5f)))
-    }
-    when (style) {
-        "vinyl" -> if (wide) {
-            Row(Modifier.fillMaxSize().padding(14.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                Record(playing, ink, pal.tiles[0], Modifier.fillMaxHeight())
-                Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.SpaceBetween) {
-                    StatusChip(status, playing, ink)
-                    names(20, 2)
-                    SongProgress(now, ink, true, onSeek)
-                    controls(true)
-                }
-            }
-        } else {
-            Column(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.SpaceBetween, horizontalAlignment = Alignment.CenterHorizontally) {
-                Record(playing, ink, pal.tiles[0], Modifier.height(62.dp))
-                Column(Modifier.fillMaxWidth()) {
-                    names(15, 1)
-                    SongProgress(now, ink, false, onSeek)
-                }
-                controls(false)
+    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
+        val bw = maxWidth
+        val bh = maxHeight
+        val short = bh < 120.dp
+        val landscape = !short && bw > bh * 1.45f
+        // How much bigger than a 2x2 this tile is; text and buttons follow it.
+        val u = (minOf(bw, bh) / 150.dp).coerceIn(0.9f, 2.2f)
+        val k = u.coerceIn(1f, 1.6f)
+        val pad = if (short) 10.dp else 12.dp * u.coerceAtMost(1.5f)
+        val inner = bh - pad * 2
+        @Composable
+        fun controls(big: Boolean, fg: Color = ink, bgc: Color = ob) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp * k), verticalAlignment = Alignment.CenterVertically) {
+                MusicBtn((if (big) 36.dp else 32.dp) * k, fg, bgc, "prev", onPrevious)
+                MusicBtn((if (big) 46.dp else 40.dp) * k, fg, bgc, if (playing) "pause" else "play", onToggle)
+                MusicBtn((if (big) 36.dp else 32.dp) * k, fg, bgc, "next", onNext)
             }
         }
-        "bars" -> if (wide) {
-            Column(Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.SpaceBetween) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
-                    Column(Modifier.weight(1f)) {
-                        StatusChip(status, playing, ink)
-                        Spacer(Modifier.height(6.dp))
-                        names(24, 1)
-                    }
-                    if (playing && now != null && now.duration > 0L) BasicText(clock(now.duration), style = label(ink, 10.sp))
-                }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    controls(true)
-                    WaveProgress(now, playing, ink, title + artist, 36, Modifier.weight(1f).height(52.dp), onSeek)
-                }
-            }
-        } else {
-            Column(Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.SpaceBetween) {
-                StatusChip(status, playing, ink)
-                names(17, 2)
-                WaveProgress(now, playing, ink, title + artist, 22, Modifier.fillMaxWidth().height(34.dp), onSeek)
-                controls(false)
+        @Composable
+        fun names(titleSize: Int, lines: Int) {
+            Column {
+                BasicText(title.uppercase(), style = display((titleSize * u).sp, ink, (-0.01).em, 1f), maxLines = lines, overflow = TextOverflow.Ellipsis)
+                BasicText(artist.uppercase(), style = label(ink, (10 * k).sp), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 3.dp * k))
             }
         }
-        "poster" -> {
-            val art = now?.art
-            val shape = if (design == "arch") RoundedCornerShape(topStart = CornerSize(50), topEnd = CornerSize(50), bottomEnd = CornerSize(14.dp), bottomStart = CornerSize(14.dp)) else RoundedCornerShape(14.dp)
-            val left = design == "left"
-            // The backdrop design draws the art behind everything, so there is no separate cover.
-            val cover: @Composable (Modifier) -> Unit = { m ->
-                if (backdrop) Unit
-                else if (art != null) Image(art.asImageBitmap(), null, m.aspectRatio(1f).clip(shape), contentScale = ContentScale.Crop)
-                else Box(m.aspectRatio(1f).clip(shape).background(ink.copy(alpha = 0.14f)), contentAlignment = Alignment.Center) { Glyph("music", ink, 26.dp, 2f) }
-            }
-            if (wide) {
-                Row(Modifier.fillMaxSize().padding(14.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                    if (left) cover(Modifier.fillMaxHeight())
+        // The buttons at the end of a short strip: play, and previous and next too when the strip is wide enough.
+        @Composable
+        fun stripButtons() {
+            if (bw >= 300.dp) controls(false) else MusicBtn(40.dp, ink, ob, if (playing) "pause" else "play", onToggle)
+        }
+        if (photoArt != null && backdrop) {
+            Image(photoArt.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            // A wash in the opposite colour to the text, so text stays readable on busy or mixed pictures.
+            Box(Modifier.fillMaxSize().background(if (light == true) Color.White.copy(alpha = 0.5f) else Color.Black.copy(alpha = 0.5f)))
+        }
+        when (style) {
+            "vinyl" -> when {
+                short -> Row(Modifier.fillMaxSize().padding(pad), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Record(playing, ink, pal.tiles[0], Modifier.height(inner))
+                    Box(Modifier.weight(1f)) { names(13, 1) }
+                    stripButtons()
+                }
+                landscape -> Row(Modifier.fillMaxSize().padding(pad), horizontalArrangement = Arrangement.spacedBy(14.dp * k)) {
+                    Record(playing, ink, pal.tiles[0], Modifier.fillMaxHeight())
                     Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.SpaceBetween) {
                         StatusChip(status, playing, ink)
-                        names(22, 2)
+                        names(20, 2)
                         SongProgress(now, ink, true, onSeek)
                         controls(true)
                     }
-                    if (!left) cover(Modifier.fillMaxHeight())
                 }
-            } else {
-                Column(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.SpaceBetween) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        if (left) cover(Modifier.size(58.dp))
+                else -> Column(Modifier.fillMaxSize().padding(pad), verticalArrangement = Arrangement.SpaceBetween, horizontalAlignment = Alignment.CenterHorizontally) {
+                    Record(playing, ink, pal.tiles[0], Modifier.height(minOf(bh * 0.42f, bw - pad * 2)))
+                    Column(Modifier.fillMaxWidth()) {
+                        names(15, 2)
+                        SongProgress(now, ink, bh > 220.dp, onSeek)
+                    }
+                    controls(bh > 220.dp)
+                }
+            }
+            "bars" -> when {
+                short -> Row(Modifier.fillMaxSize().padding(pad), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        names(13, 1)
+                        WaveProgress(now, playing, ink, title + artist, if (bw >= 300.dp) 40 else 20, Modifier.fillMaxWidth().height(22.dp), onSeek)
+                    }
+                    stripButtons()
+                }
+                landscape -> Column(Modifier.fillMaxSize().padding(pad), verticalArrangement = Arrangement.SpaceBetween) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
                         Column(Modifier.weight(1f)) {
                             StatusChip(status, playing, ink)
-                            Spacer(Modifier.height(4.dp))
-                            names(15, 2)
+                            Spacer(Modifier.height(6.dp))
+                            names(24, 1)
                         }
-                        if (!left) cover(Modifier.size(58.dp))
+                        if (playing && now != null && now.duration > 0L) BasicText(clock(now.duration), style = label(ink, (10 * k).sp))
                     }
-                    SongProgress(now, ink, false, onSeek)
-                    controls(false)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        controls(true)
+                        WaveProgress(now, playing, ink, title + artist, 36, Modifier.weight(1f).height(52.dp * k), onSeek)
+                    }
                 }
-            }
-        }
-        else -> if (wide) {
-            Row(Modifier.fillMaxSize().padding(14.dp), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                ProgressRing(now, playing, ink, bg, 112.dp, onToggle)
-                Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.SpaceBetween) {
+                else -> Column(Modifier.fillMaxSize().padding(pad), verticalArrangement = Arrangement.SpaceBetween) {
                     StatusChip(status, playing, ink)
-                    names(20, 2)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        MusicBtn(36.dp, ink, ob, "prev", onPrevious)
-                        MusicBtn(36.dp, ink, ob, "next", onNext)
+                    names(17, 2)
+                    WaveProgress(now, playing, ink, title + artist, if (bw >= 260.dp) 36 else 22, Modifier.fillMaxWidth().height(maxOf(34.dp, bh * 0.2f)), onSeek)
+                    controls(bh > 220.dp)
+                }
+            }
+            "poster" -> {
+                val art = now?.art
+                val shape = if (design == "arch") RoundedCornerShape(topStart = CornerSize(50), topEnd = CornerSize(50), bottomEnd = CornerSize(14.dp), bottomStart = CornerSize(14.dp)) else RoundedCornerShape(14.dp)
+                val left = design == "left"
+                // The backdrop design draws the art behind everything, so there is no separate cover.
+                val cover: @Composable (Modifier) -> Unit = { m ->
+                    if (backdrop) Unit
+                    else if (art != null) Image(art.asImageBitmap(), null, m.aspectRatio(1f).clip(shape), contentScale = ContentScale.Crop)
+                    else Box(m.aspectRatio(1f).clip(shape).background(ink.copy(alpha = 0.14f)), contentAlignment = Alignment.Center) { Glyph("music", ink, 26.dp * k, 2f) }
+                }
+                when {
+                    short -> Row(Modifier.fillMaxSize().padding(pad), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        if (left) cover(Modifier.size(inner))
+                        Box(Modifier.weight(1f)) { names(13, 1) }
+                        if (!left) cover(Modifier.size(inner))
+                        stripButtons()
+                    }
+                    landscape -> Row(Modifier.fillMaxSize().padding(pad), horizontalArrangement = Arrangement.spacedBy(14.dp * k)) {
+                        if (left) cover(Modifier.fillMaxHeight())
+                        Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.SpaceBetween) {
+                            StatusChip(status, playing, ink)
+                            names(22, 2)
+                            SongProgress(now, ink, true, onSeek)
+                            controls(true)
+                        }
+                        if (!left) cover(Modifier.fillMaxHeight())
+                    }
+                    else -> {
+                        // Square or tall: the picture grows with the tile, up to a bit under half its height.
+                        val coverSize = minOf(bh * 0.4f, bw * 0.45f).coerceAtLeast(58.dp)
+                        Column(Modifier.fillMaxSize().padding(pad), verticalArrangement = Arrangement.SpaceBetween) {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp * k)) {
+                                if (left) cover(Modifier.size(coverSize))
+                                Column(Modifier.weight(1f)) {
+                                    StatusChip(status, playing, ink)
+                                    Spacer(Modifier.height(4.dp * k))
+                                    names(15, 3)
+                                }
+                                if (!left) cover(Modifier.size(coverSize))
+                            }
+                            SongProgress(now, ink, bh > 220.dp, onSeek)
+                            controls(bh > 220.dp)
+                        }
                     }
                 }
             }
-        } else {
-            Column(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.SpaceBetween) {
-                names(15, 1)
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-                    MusicBtn(30.dp, ink, ob, "prev", onPrevious)
-                    ProgressRing(now, playing, ink, bg, 78.dp, onToggle)
-                    MusicBtn(30.dp, ink, ob, "next", onNext)
+            else -> when {
+                short -> Row(Modifier.fillMaxSize().padding(pad), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    ProgressRing(now, playing, ink, bg, inner, onToggle)
+                    Box(Modifier.weight(1f)) { names(13, 1) }
+                    MusicBtn(34.dp, ink, ob, "next", onNext)
+                }
+                landscape -> Row(Modifier.fillMaxSize().padding(pad), horizontalArrangement = Arrangement.spacedBy(16.dp * k), verticalAlignment = Alignment.CenterVertically) {
+                    ProgressRing(now, playing, ink, bg, minOf(inner, 220.dp), onToggle)
+                    Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.SpaceBetween) {
+                        StatusChip(status, playing, ink)
+                        names(20, 2)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            MusicBtn(36.dp * k, ink, ob, "prev", onPrevious)
+                            MusicBtn(36.dp * k, ink, ob, "next", onNext)
+                        }
+                    }
+                }
+                else -> Column(Modifier.fillMaxSize().padding(pad), verticalArrangement = Arrangement.SpaceBetween) {
+                    names(15, 2)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+                        MusicBtn(30.dp * k, ink, ob, "prev", onPrevious)
+                        ProgressRing(now, playing, ink, bg, minOf(bh * 0.4f, bw * 0.5f).coerceAtLeast(78.dp), onToggle)
+                        MusicBtn(30.dp * k, ink, ob, "next", onNext)
+                    }
                 }
             }
         }
-    }
     }
 }
 
@@ -1882,6 +2121,65 @@ private fun WeatherHalf(modifier: Modifier, h: Int, ink: Color, data: Weather?, 
                 }
                 BasicText(temp, style = display(34.sp, ink, (-0.05).em))
             }
+        }
+    }
+}
+
+/**
+ * One card of the flip clock. When [value] changes the top half of the old number folds down and the bottom half of the
+ * new one folds into place, the way a split-flap clock turns.
+ */
+@Composable
+private fun FlipCard(value: String, fill: Color, face: Color, style: TextStyle, modifier: Modifier) {
+    var shown by remember { mutableStateOf(value) }
+    var prev by remember { mutableStateOf(value) }
+    val turn = remember { androidx.compose.animation.core.Animatable(1f) }
+    LaunchedEffect(value) {
+        if (value != shown) {
+            prev = shown
+            shown = value
+            turn.snapTo(0f)
+            turn.animateTo(1f, androidx.compose.animation.core.tween(560, easing = androidx.compose.animation.core.LinearEasing))
+        }
+    }
+    val dens = LocalDensity.current
+    @Composable
+    fun Half(text: String, top: Boolean, mod: Modifier = Modifier) {
+        Box(
+            mod
+                .fillMaxSize()
+                .drawWithContent {
+                    val h = size.height / 2f
+                    clipRect(top = if (top) 0f else h, bottom = if (top) h else size.height) { this@drawWithContent.drawContent() }
+                }
+                .background(fill),
+            contentAlignment = Alignment.Center,
+        ) {
+            FitText(text, style, Modifier.fillMaxSize().padding(10.dp), align = Alignment.Center)
+            Box(Modifier.fillMaxWidth().height(2.dp).background(face.copy(alpha = 0.35f)))
+        }
+    }
+    Box(modifier.clip(RoundedCornerShape(14.dp)).background(fill)) {
+        val p = turn.value
+        // Still halves: the new top is revealed as the old one folds away, the old bottom stays until the new one lands.
+        Half(shown, top = true)
+        Half(if (p < 1f) prev else shown, top = false)
+        if (p < 0.5f) {
+            Half(
+                prev, top = true,
+                mod = Modifier.graphicsLayer {
+                    cameraDistance = 14f * dens.density
+                    rotationX = -180f * p
+                },
+            )
+        } else if (p < 1f) {
+            Half(
+                shown, top = false,
+                mod = Modifier.graphicsLayer {
+                    cameraDistance = 14f * dens.density
+                    rotationX = 180f * (1f - p)
+                },
+            )
         }
     }
 }

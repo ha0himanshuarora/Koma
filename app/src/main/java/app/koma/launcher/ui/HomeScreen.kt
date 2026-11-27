@@ -268,7 +268,7 @@ fun HomeScreen(state: HomeState, homePress: Int, homeInApp: Boolean = false) {
         // Full-screen apps and settings are opaque all the way up, including the strip beside a camera cutout, which
         // the cutout padding below would otherwise leave showing the wallpaper through a see-through ground.
         val solidScreen = when (state.screen) {
-            Screen.Settings, Screen.Notes, Screen.Tasks, Screen.Focus, Screen.Clock, Screen.Calc, Screen.Apps -> true
+            Screen.Settings, Screen.Notes, Screen.Tasks, Screen.Focus, Screen.Clock, Screen.Calc, Screen.Apps, Screen.Weather, Screen.ScreenTime -> true
             else -> false
         }
         Box(
@@ -291,6 +291,8 @@ fun HomeScreen(state: HomeState, homePress: Int, homeInApp: Boolean = false) {
                     Screen.Clock -> ClockApp(state)
                     Screen.Calc -> CalcApp(state)
                     Screen.Apps -> KomaApps(state)
+                    Screen.Weather -> WeatherApp(state)
+                    Screen.ScreenTime -> ScreenTimeApp(state)
                 }
                 val sheetTile = state.tiles.firstOrNull { it.id == state.sheetId }
                 if (sheetTile != null && state.screen == Screen.Home) TileSheet(state, sheetTile)
@@ -684,9 +686,13 @@ private fun HomeGrid(state: HomeState, ctx: Context, scroll: ScrollState) {
                                                         val dh = h0 + sy * accY / (cellHeight() + gapPx)
                                                         val cur = state.tiles.firstOrNull { it.id == t.id }
                                                         if (cur != null) {
-                                                            val best = cur.allowedSizes(cols).minByOrNull { sz ->
-                                                                val ex = if (sx != 0) sz.first - dw else (sz.first - w0).toFloat() * 4f
-                                                                val ey = if (sy != 0) sz.second - dh else (sz.second - h0).toFloat() * 4f
+                                                            val opts = cur.allowedSizes(cols)
+                                                            // An axis only steers the size when this tile can actually change along it.
+                                                            val wVar = opts.map { it.first }.distinct().size > 1
+                                                            val hVar = opts.map { it.second }.distinct().size > 1
+                                                            val best = opts.minByOrNull { sz ->
+                                                                val ex = if (sx != 0 && wVar) sz.first - dw else (sz.first - w0).toFloat() * 4f
+                                                                val ey = if (sy != 0 && hVar) sz.second - dh else (sz.second - h0).toFloat() * 4f
                                                                 ex * ex + ey * ey
                                                             }
                                                             if (best != null && (best.first != cur.w || best.second != cur.h)) {
@@ -727,7 +733,8 @@ private fun HomeGrid(state: HomeState, ctx: Context, scroll: ScrollState) {
                                     Handle(midX, o.y + inset + edge / 4, 0, -1, alongH, edge)
                                 }
                                 // Corners are drawn last, so they win where they overlap an edge.
-                                if (canW && canH) {
+                                // Corners show whenever the tile can resize at all; on a tile that only changes one way they still work.
+                                if (canW || canH) {
                                     val k = corner / 2 - dn.run { 4.dp.toPx() }
                                     Handle(o.x + wPx - inset - k, o.y + hPx - inset - k, 1, 1, corner, corner)
                                     Handle(o.x + inset + k, o.y + hPx - inset - k, -1, 1, corner, corner)
@@ -892,6 +899,8 @@ internal fun runGesture(state: HomeState, action: String) {
         action == "focus" -> state.open(Screen.Focus)
         action == "clock" -> state.openClock(0)
         action == "calc" -> state.open(Screen.Calc)
+        action == "weather" -> state.open(Screen.Weather)
+        action == "screentime" -> state.open(Screen.ScreenTime)
         action == "kapps" -> state.open(Screen.Apps)
         action == "settings" -> state.open(Screen.Settings)
         action == "edit" -> state.startEdit()
@@ -1116,6 +1125,11 @@ private fun StackTile(state: HomeState, ctx: Context, tile: Tile, edit: Boolean)
             val app = remember(state.apps, child.arg) { state.apps.firstOrNull { it.key == child.arg } }
             Box(
                 Modifier.fillMaxSize().graphicsLayer {
+                    // Fading each page alone, without an off-screen copy of it, keeps swiping smooth; clipping to the tile
+                    // shape keeps the corners round while a page is scaled or mid-swipe.
+                    compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha
+                    clip = true
+                    shape = TileShape
                     // Distance from the centred page: 0 centred, 1 one page away.
                     val d = ((page - ps.currentPage) - ps.currentPageOffsetFraction).coerceIn(-1f, 1f)
                     val a = kotlin.math.abs(d)
@@ -1234,7 +1248,7 @@ private fun StackTile(state: HomeState, ctx: Context, tile: Tile, edit: Boolean)
                 move(d)
             }
         }
-        Box(Modifier.fillMaxSize().nestedScroll(handOff).then(dragger)) {
+        Box(Modifier.fillMaxSize().clip(TileShape).nestedScroll(handOff).then(dragger)) {
             if (horizontal) {
                 androidx.compose.foundation.pager.HorizontalPager(
                     state = ps,
@@ -1308,12 +1322,12 @@ internal fun onTileClick(state: HomeState, ctx: Context, tile: Tile) {
         Kind.ALL -> state.openDrawer()
         Kind.SEARCH -> state.openSearch()
         Kind.CALENDAR -> if (!state.calendarGranted) state.request(Manifest.permission.READ_CALENDAR) else openCalendar(ctx)
-        Kind.WEATHER -> if (!state.locationGranted && state.prefs.weatherPlace.isEmpty()) state.request(Manifest.permission.ACCESS_COARSE_LOCATION)
+        Kind.WEATHER -> state.open(Screen.Weather)
         Kind.MUSIC -> openMusic(state, ctx, tile)
         Kind.KANJI -> Unit
         Kind.FAVS -> if (!state.contactsGranted) state.request(Manifest.permission.READ_CONTACTS)
         Kind.CALLS -> if (!state.callsGranted) state.request(Manifest.permission.READ_CALL_LOG)
-        Kind.SCREENTIME -> if (!state.usageGranted) tryStart(ctx, Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+        Kind.SCREENTIME -> state.open(Screen.ScreenTime)
         Kind.CLOCK -> state.openClock(0)
         Kind.BLUETOOTH -> if (!state.btGranted) state.request(Manifest.permission.BLUETOOTH_CONNECT) else tryStart(ctx, Intent(Settings.ACTION_BLUETOOTH_SETTINGS))
         Kind.TIMER -> {

@@ -12,7 +12,7 @@ object Gestures {
         "double" to "Double tap", "long" to "Long press",
     )
     val actions = listOf(
-        "" to "NOTHING", "search" to "SEARCH", "notes" to "NOTES", "tasks" to "REMINDERS", "focus" to "FOCUS", "calc" to "CALCULATOR", "kapps" to "KOMA APPS",
+        "" to "NOTHING", "search" to "SEARCH", "notes" to "NOTES", "tasks" to "REMINDERS", "focus" to "FOCUS", "calc" to "CALCULATOR", "weather" to "WEATHER", "screentime" to "SCREEN TIME", "kapps" to "KOMA APPS",
         "settings" to "KOMA SETTINGS", "edit" to "EDIT LAYOUT", "drawer" to "ALL APPS",
         // These need Koma switched on in Accessibility settings.
         "lock" to "LOCK SCREEN", "shade" to "NOTIFICATIONS", "quick" to "QUICK SETTINGS",

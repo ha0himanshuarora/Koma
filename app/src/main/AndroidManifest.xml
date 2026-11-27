@@ -97,6 +97,59 @@
             </intent-filter>
         </activity>
 
+        <!-- A Koma app in a window of its own: one entry in recents per app (documentLaunchMode, keyed by the intent's address). -->
+        <activity
+            android:name=".KomaAppActivity"
+            android:exported="false"
+            android:documentLaunchMode="intoExisting"
+            android:resizeableActivity="false"
+            android:windowSoftInputMode="adjustResize"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode|density|fontScale" />
+
+        <!-- One alias per Koma app gives its recents entry its own name and icon. A new app needs one more alias named Koma<Id>Alias. -->
+        <activity-alias
+            android:name=".KomaClockAlias"
+            android:targetActivity=".KomaAppActivity"
+            android:exported="false"
+            android:label="Clock"
+            android:icon="@mipmap/ic_koma_clock" />
+        <activity-alias
+            android:name=".KomaNotesAlias"
+            android:targetActivity=".KomaAppActivity"
+            android:exported="false"
+            android:label="Notes"
+            android:icon="@mipmap/ic_koma_notes" />
+        <activity-alias
+            android:name=".KomaRemindersAlias"
+            android:targetActivity=".KomaAppActivity"
+            android:exported="false"
+            android:label="Reminders"
+            android:icon="@mipmap/ic_koma_reminders" />
+        <activity-alias
+            android:name=".KomaCalcAlias"
+            android:targetActivity=".KomaAppActivity"
+            android:exported="false"
+            android:label="Calculator"
+            android:icon="@mipmap/ic_koma_calc" />
+        <activity-alias
+            android:name=".KomaWeatherAlias"
+            android:targetActivity=".KomaAppActivity"
+            android:exported="false"
+            android:label="Weather"
+            android:icon="@mipmap/ic_koma_weather" />
+        <activity-alias
+            android:name=".KomaScreentimeAlias"
+            android:targetActivity=".KomaAppActivity"
+            android:exported="false"
+            android:label="Screen time"
+            android:icon="@mipmap/ic_koma_screentime" />
+        <activity-alias
+            android:name=".KomaSettingsAlias"
+            android:targetActivity=".KomaAppActivity"
+            android:exported="false"
+            android:label="Koma settings"
+            android:icon="@mipmap/ic_koma_settings" />
+
         <!-- Carries the notification-access permission that lets the music tile read media sessions. -->
         <service
             android:name=".data.KomaNotificationListener"

@@ -48,7 +48,7 @@ import kotlinx.coroutines.withContext
 import androidx.compose.ui.graphics.asImageBitmap
 import java.util.UUID
 
-enum class Screen { Home, Drawer, Search, Settings, Notes, Tasks, Focus, Clock, Calc, Apps }
+enum class Screen { Home, Drawer, Search, Settings, Notes, Tasks, Focus, Clock, Calc, Apps, Weather, ScreenTime }
 
 /** What the drawer is picking an app for. [kind] is "assign" (change a tile's app), "add" (new app tile) or "group". */
 class Pick(val kind: String, val tileId: String?)
@@ -156,6 +156,31 @@ class HomeState(private val context: Context) {
         private set
     var tasks by mutableStateOf(library.loadTasks())
         private set
+
+    /**
+     * Set when a Koma app runs in a window of its own (see KomaAppActivity): going home then closes that window
+     * instead of showing the home screen in it.
+     */
+    var standaloneExit: (() -> Unit)? = null
+
+    /**
+     * Notes, reminders and alarms live in files that every window of Koma shares, but each window keeps its own copy in
+     * memory. This reads them again, so a window that was behind another one shows what was changed there.
+     */
+    fun reloadData() {
+        // Koma settings runs in a window of its own, so settings, layout and dock are read again too.
+        app.koma.launcher.data.Pref.reloadAll()
+        store = LayoutStore(context, layoutFile(prefs.homeType))
+        if (!edit && store.exists()) tiles = store.load()
+        dock = loadDock()
+        notes = library.loadNotes().filter { it.trashed == 0L || System.currentTimeMillis() - it.trashed < Notes.BIN_MS }
+        tasks = library.loadTasks()
+        clock.refresh()
+        if (Visibility.pendingEdit) {
+            Visibility.pendingEdit = false
+            if (standaloneExit == null) startEdit()
+        }
+    }
 
     init {
         // Done on a reminder's notification changes the file; reload so the lists follow. Arm the next reminder too.
@@ -532,6 +557,13 @@ class HomeState(private val context: Context) {
 
     suspend fun loadWeather(): Weather? = WeatherRepo.refresh(context, sp, prefs.weatherUnit, prefs.weatherPlace)
 
+    /** The Weather app's full forecast for one place ("" is this phone's location). */
+    fun cachedForecast(place: String): app.koma.launcher.data.Forecast? =
+        app.koma.launcher.data.ForecastRepo.cached(sp, place, prefs.weatherUnit)
+
+    suspend fun loadForecast(place: String, force: Boolean = false): app.koma.launcher.data.Forecast? =
+        app.koma.launcher.data.ForecastRepo.refresh(context, sp, place, prefs.weatherUnit, force)
+
     // ---- launching ------------------------------------------------------------------------------
 
     /** Set when an app was opened from a screen other than Home: Koma goes back to Home once the app covers it. */
@@ -597,11 +629,39 @@ class HomeState(private val context: Context) {
 
     // ---- navigation -----------------------------------------------------------------------------
 
+    /** Clock, Notes, Reminders and Calculator open in a window of their own (own entry in recents) from the home screen. */
+    private fun openInOwnWindow(s: Screen, page: String = ""): Boolean {
+        if (standaloneExit != null) return false
+        val id = when (s) {
+            Screen.Notes -> "notes"
+            Screen.Tasks -> "reminders"
+            Screen.Calc -> "calc"
+            Screen.Settings -> "settings"
+            Screen.Weather -> "weather"
+            Screen.ScreenTime -> "screentime"
+            Screen.Clock, Screen.Focus -> "clock"
+            else -> return false
+        }
+        val target = komaApps(this).firstOrNull { it.id == id } ?: return false
+        val tab = if (s == Screen.Focus) 4 else clockTab
+        val note = noteOpenId
+        val timer = timerSec
+        val ok = launchKomaApp(context, target) {
+            if (id == "clock") it.putExtra(app.koma.launcher.KomaAppActivity.EXTRA_TAB, tab)
+            if (id == "settings" && page.isNotEmpty()) it.putExtra(app.koma.launcher.KomaAppActivity.EXTRA_PAGE, page)
+            if (id == "notes" && note != null) it.putExtra(app.koma.launcher.KomaAppActivity.EXTRA_NOTE, note)
+            if (id == "clock" && timer > 0) it.putExtra(app.koma.launcher.KomaAppActivity.EXTRA_TIMER, timer)
+        }
+        if (ok) noteOpenId = null
+        return ok
+    }
+
     fun open(s: Screen, page: String = "") {
         if (s == Screen.Settings && focusActive?.strict == true) {
             Toast.makeText(context, "Settings are locked during Focus", Toast.LENGTH_SHORT).show()
             return
         }
+        if (openInOwnWindow(s, page)) return
         // Focus now lives inside the Clock app, as its last tab.
         if (s == Screen.Focus) clockTab = 4
         screen = if (s == Screen.Focus) Screen.Clock else s
@@ -621,6 +681,7 @@ class HomeState(private val context: Context) {
     }
 
     fun goHome() {
+        standaloneExit?.let { it(); return }
         fromHub = false
         screen = Screen.Home
         closeTaskEditor()
@@ -649,6 +710,7 @@ class HomeState(private val context: Context) {
         screen == Screen.Settings && settingsPage in setOf("colour", "looks", "gestures") -> { settingsPage = "home"; true }
         screen == Screen.Settings && settingsPage == "about" -> { settingsPage = "system"; true }
         screen == Screen.Settings && settingsPage.isNotEmpty() -> { settingsPage = ""; true }
+        standaloneExit != null && screen != Screen.Home -> { standaloneExit?.invoke(); true }
         fromHub && screen != Screen.Apps -> { fromHub = false; pick = null; screen = Screen.Apps; true }
         screen != Screen.Home -> { pick = null; screen = Screen.Home; settingsPage = ""; true }
         edit -> { finishEdit(); true }
@@ -658,6 +720,10 @@ class HomeState(private val context: Context) {
     // ---- edit mode ------------------------------------------------------------------------------
 
     fun startEdit() {
+        if (standaloneExit != null) { // a window of its own cannot edit the home screen: the home screen does it when you return
+            Visibility.pendingEdit = true
+            return
+        }
         if (edit) return
         editSnapshot = tiles
         removedWidgets.clear()

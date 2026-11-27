@@ -172,7 +172,11 @@ object Device {
                 ev.getNextEvent(e)
                 val pkg = e.packageName ?: continue
                 when (e.eventType) {
-                    1 -> if (pkg !in open) open[pkg] = e.timeStamp
+                    1 -> if (open.size != 1 || pkg !in open) { // one app is in front at a time
+                        open.forEach { (p, s) -> add(p, e.timeStamp - s) }
+                        open.clear()
+                        open[pkg] = e.timeStamp
+                    }
                     2 -> open.remove(pkg)?.let { add(pkg, e.timeStamp - it) }
                     16, 26 -> {
                         open.forEach { (p, s) -> add(p, e.timeStamp - s) }
@@ -235,7 +239,11 @@ object Device {
                         ev.getNextEvent(e)
                         val pkg = e.packageName ?: continue
                         when (e.eventType) {
-                            1 -> if (counted(pkg) && pkg !in open) open[pkg] = e.timeStamp // an activity came to the front
+                            1 -> if (open.size != 1 || pkg !in open) { // an activity came to the front, so whatever was open ends
+                                open.values.forEach { total += (e.timeStamp - it).coerceAtLeast(0L) }
+                                open.clear()
+                                if (counted(pkg)) open[pkg] = e.timeStamp
+                            }
                             2 -> open.remove(pkg)?.let { total += (e.timeStamp - it).coerceAtLeast(0L) } // and went away
                             16, 26 -> { // screen off, shutdown
                                 open.values.forEach { total += (e.timeStamp - it).coerceAtLeast(0L) }

@@ -10,7 +10,23 @@ import kotlinx.coroutines.withTimeoutOrNull
  * is shown again. Nothing wakes the phone while another app is in front or the screen is off.
  */
 object Visibility {
+    /** Set by a window of its own (Koma settings) that cannot start editing the home screen itself; the home screen starts it on return. */
+    @Volatile var pendingEdit = false
+
     val shown = MutableStateFlow(true)
+    private var visible = 0
+
+    /** An activity of Koma came on screen. Counted, because the next one starts before the last one stops. */
+    fun enter() {
+        visible++
+        shown.value = true
+    }
+
+    /** An activity of Koma left the screen. Koma counts as hidden only once none is showing. */
+    fun leave() {
+        visible = (visible - 1).coerceAtLeast(0)
+        shown.value = visible > 0
+    }
 }
 
 suspend fun awaitVisible() {

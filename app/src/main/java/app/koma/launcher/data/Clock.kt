@@ -158,9 +158,11 @@ class ClockModel(private val ctx: Context) {
     var zones by mutableStateOf(ClockStore.zones(ctx))
         private set
 
-    /** Re-reads the alarms: a one-time alarm switches itself off while Koma is closed. */
+    /** Re-reads the alarms, groups and world clocks: a one-time alarm switches itself off while Koma is closed, and another window may have changed them. */
     fun refresh() {
         alarms = ClockStore.alarms(ctx)
+        groups = ClockStore.groups(ctx)
+        zones = ClockStore.zones(ctx)
     }
 
     private fun commit(list: List<Alarm>) {

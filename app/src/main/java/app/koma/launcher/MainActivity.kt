@@ -21,6 +21,7 @@ class MainActivity : ComponentActivity() {
     private var homePress by mutableIntStateOf(0)
     private var homeInApp by androidx.compose.runtime.mutableStateOf(false)
     private lateinit var state: HomeState
+    private var started = false
     private var askDefault by androidx.compose.runtime.mutableStateOf(false)
 
     // True while the system "set default" dialog is up, so coming back from it does not ask again at once.
@@ -79,7 +80,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        app.koma.launcher.ui.Visibility.shown.value = true
+        app.koma.launcher.ui.Visibility.enter()
+        // Another window of Koma may have changed notes, reminders or alarms while this one was behind it.
+        if (started) state.reloadData()
+        started = true
         val filter = IntentFilter().apply {
             addAction(Intent.ACTION_PACKAGE_ADDED)
             addAction(Intent.ACTION_PACKAGE_REMOVED)
@@ -103,7 +107,7 @@ class MainActivity : ComponentActivity() {
             state.homeAfterLaunch = false
             state.goHome()
         }
-        app.koma.launcher.ui.Visibility.shown.value = false
+        app.koma.launcher.ui.Visibility.leave()
         state.watchWallpaper(false)
         state.widgets.stop()
         state.media.stop()

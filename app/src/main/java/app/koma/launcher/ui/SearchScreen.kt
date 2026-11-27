@@ -52,10 +52,20 @@ import app.koma.launcher.data.ContactSearch
 import app.koma.launcher.data.Engines
 import app.koma.launcher.data.FocusEngine
 import app.koma.launcher.data.Quick
+import app.koma.launcher.data.AppMatch
 import app.koma.launcher.data.QuickAnswer
 import kotlin.math.abs
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+
+/** One line of app search: an installed app, or one of Koma's own apps (never both). */
+private class SearchApp(val label: String, val app: AppInfo?, val koma: KomaApp?) {
+    /** The text to rank for [q]: the name, or the keyword that matched when the name does not. */
+    fun matchText(q: String): String {
+        if (koma == null || AppMatch.rank(label, q) >= 0) return label
+        return koma.keywords.firstOrNull { AppMatch.rank(it, q) >= 0 } ?: label
+    }
+}
 
 /**
  * Quick search, opened by pressing Home again on the home screen. Everything sits at the bottom, next to the
@@ -72,12 +82,14 @@ fun SearchScreen(state: HomeState) {
     val engineName = Engines.all.firstOrNull { it.first == state.prefs.engine }?.second?.first ?: "the web"
 
     // Listed top to bottom, so the best match is the last one, right above the field.
-    val apps: List<AppInfo> = remember(state.apps, q) {
-        val usable = state.apps.filter { FocusEngine.allows(it.pkg) }
+    val apps: List<SearchApp> = remember(state.apps, q) {
         if (q.isEmpty()) {
-            state.recentApps().filter { FocusEngine.allows(it.pkg) }.take(5).reversed()
+            state.recentApps().filter { FocusEngine.allows(it.pkg) }.take(5).reversed().map { SearchApp(it.label, it, null) }
         } else {
-            app.koma.launcher.data.AppMatch.filter(usable, q) { it.label }
+            // Koma's own apps that are flagged searchable sit among the installed ones and rank the same way.
+            val usable = state.apps.filter { FocusEngine.allows(it.pkg) }.map { SearchApp(it.label, it, null) } +
+                komaApps(state).filter { it.searchable }.map { SearchApp(it.name, null, it) }
+            app.koma.launcher.data.AppMatch.filter(usable, q) { it.matchText(q) }
                 .take(5)
                 .reversed()
         }
@@ -87,8 +99,11 @@ fun SearchScreen(state: HomeState) {
     val contacts = rememberContacts(state, q)
     val suggestions = rememberWebSuggestions(q)
 
-    fun openApp(a: AppInfo) {
-        state.launchThenHome(a.key)
+    fun openApp(a: SearchApp) {
+        if (a.app != null) state.launchThenHome(a.app.key) else a.koma?.let {
+            // Search closes behind the new window, so coming back lands on the home screen.
+            if (launchKomaApp(ctx, it)) state.goHome() else it.open()
+        }
     }
 
     fun web() {
@@ -135,11 +150,13 @@ fun SearchScreen(state: HomeState) {
                                 .clickable { openApp(a) }.padding(horizontal = 8.dp, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            AppIcon(state.icons, a, 38.dp, bg = pal.tiles[abs(a.key.hashCode()) % pal.tiles.size], ink = pal.ink, line = pal.onGround)
+                            if (a.app != null) AppIcon(state.icons, a.app, 38.dp, bg = pal.tiles[abs(a.app.key.hashCode()) % pal.tiles.size], ink = pal.ink, line = pal.onGround)
+                            else GlyphIcon(a.koma?.glyph ?: "all", 38.dp, pal.tiles[abs(a.label.hashCode()) % pal.tiles.size], pal.ink, pal.onGround)
                             Spacer(Modifier.width(14.dp))
                             androidx.compose.foundation.layout.Column(Modifier.weight(1f)) {
                                 BasicText(a.label, style = bodyStyle(pal.onGround, 17, medium = true), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                if (a.key in state.hiddenKeys) BasicText("hidden", style = monoStyle(pal.onGround.copy(alpha = 0.55f), 8))
+                                if (a.koma != null) BasicText("KOMA APP", style = monoStyle(pal.onGround.copy(alpha = 0.55f), 8))
+                                else if (a.app != null && a.app.key in state.hiddenKeys) BasicText("hidden", style = monoStyle(pal.onGround.copy(alpha = 0.55f), 8))
                             }
                             if (best) Glyph("arrow", pal.onGround.copy(alpha = 0.6f), 18.dp, 2f)
                         }

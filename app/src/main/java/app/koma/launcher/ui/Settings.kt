@@ -269,9 +269,8 @@ private fun LimitsPage(state: HomeState) {
                 }
             }
         }
-        Group("INDICATOR", hint = "Shown while a limited app is open, in your theme colour. A ring fills around the front camera, sized to it, and a line fills along the top. Ring side is only used on phones with no camera hole.") {
+        Group("INDICATOR", hint = "Shown while a limited app is open, in your theme colour. A ring fills around the front camera, sized to it, and a line fills along the top. On a phone that does not report a camera hole, the ring sits in the middle of the status bar.") {
             Dropdown(listOf("line" to "LINE", "ring" to "RING"), state.prefs.limitStyle, "Style") { state.prefs.limitStyle = it }
-            if (state.prefs.limitStyle == "ring") Dropdown(listOf("right" to "RIGHT OF CAMERA", "left" to "LEFT OF CAMERA"), state.prefs.limitSide, "Ring side") { state.prefs.limitSide = it }
         }
         Group("NEEDS") {
             ListRow("Usage access", "Counts the time each app is open", "device", t[2 % t.size], onClick = {

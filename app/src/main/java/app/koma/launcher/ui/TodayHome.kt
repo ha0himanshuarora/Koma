@@ -128,7 +128,7 @@ internal fun TodayHeader(state: HomeState, ctx: Context) {
                     .padding(top = 4.dp)
                     .clip(RoundedCornerShape(18.dp))
                     .border(1.5.dp, ink.copy(alpha = 0.22f), RoundedCornerShape(18.dp))
-                    .clickable { if (!granted) state.request(Manifest.permission.ACCESS_COARSE_LOCATION) }
+                    .clickable { if (!granted) state.request(Manifest.permission.ACCESS_COARSE_LOCATION) else if (free(state)) state.open(Screen.Weather) }
                     .padding(horizontal = 12.dp, vertical = 8.dp),
                 horizontalAlignment = Alignment.End,
             ) {

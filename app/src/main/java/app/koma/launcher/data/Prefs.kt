@@ -5,17 +5,40 @@ import androidx.compose.runtime.mutableStateOf
 import kotlin.reflect.KProperty
 
 /** A setting that is both Compose state (so the UI follows it) and saved to SharedPreferences. */
-class Pref<T : Any>(private val sp: SharedPreferences, private val key: String, default: T) {
+class Pref<T : Any>(private val sp: SharedPreferences, private val key: String, private val default: T) {
     @Suppress("UNCHECKED_CAST")
-    private val state = mutableStateOf(
-        when (default) {
-            is Boolean -> sp.getBoolean(key, default)
-            is Int -> sp.getInt(key, default)
-            is Long -> sp.getLong(key, default)
-            is String -> sp.getString(key, default) ?: default
-            else -> default
-        } as T
-    )
+    private fun read(): T = when (default) {
+        is Boolean -> sp.getBoolean(key, default)
+        is Int -> sp.getInt(key, default)
+        is Long -> sp.getLong(key, default)
+        is String -> sp.getString(key, default) ?: default
+        else -> default
+    } as T
+
+    private val state = mutableStateOf(read())
+
+    init {
+        synchronized(all) { all.add(java.lang.ref.WeakReference(this)) }
+    }
+
+    /** Reads the saved value again, for when another window of Koma changed it. */
+    fun reload() {
+        val v = read()
+        if (v != state.value) state.value = v
+    }
+
+    companion object {
+        private val all = ArrayList<java.lang.ref.WeakReference<Pref<*>>>()
+
+        /** Every setting follows what is saved. Used when a window comes back after another one (Koma settings, say) changed settings. */
+        fun reloadAll() {
+            val live = synchronized(all) {
+                all.removeAll { it.get() == null }
+                all.toList()
+            }
+            live.forEach { it.get()?.reload() }
+        }
+    }
 
     operator fun getValue(thisRef: Any?, property: KProperty<*>): T = state.value
 
@@ -135,6 +158,9 @@ class Prefs(sp: SharedPreferences) {
     var weatherUnit by Pref(sp, "weather_unit", "auto")
     var weatherPlace by Pref(sp, "weather_place", "")
     var weatherPlace2 by Pref(sp, "weather_place2", "")
+    /** Cities added in the Weather app, one "lat|lon|Name" per line, and which place it last showed. */
+    var weatherSaved by Pref(sp, "weather_saved", "")
+    var weatherSel by Pref(sp, "weather_sel", 0)
     var foldersJson by Pref(sp, "folders", "")
     var weatherHiLo by Pref(sp, "weather_hilo", true)
     var weatherCat by Pref(sp, "weather_cat", true)
@@ -148,7 +174,6 @@ class Prefs(sp: SharedPreferences) {
     var tileBadge by Pref(sp, "tile_badge", "circle")
     /** How the app limit shows while a limited app is open: "line" along the top or a small "ring" in a corner. */
     var limitStyle by Pref(sp, "limit_style", "line")
-    var limitSide by Pref(sp, "limit_side", "right")
     var btIcon by Pref(sp, "bt_icon", "outline")
     var forceIcons by Pref(sp, "force_icons", true)
 

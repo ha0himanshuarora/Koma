@@ -13,7 +13,7 @@ enum class Kind(val title: String, val desc: String, val sizes: List<Pair<Int, I
     DATE("Date", "Today's date, nice and big.", listOf(1 to 1, 2 to 1, 2 to 2)),
     KANJI("Words", "A word that means something to you.", listOf(1 to 2, 1 to 1, 2 to 1, 2 to 2, 4 to 1)),
     WEATHER("Weather", "Right where you are. Wide sizes show two places.", listOf(2 to 2, 2 to 1, 1 to 1, 4 to 2, 4 to 1)),
-    MUSIC("Now playing", "Controls whatever you're listening to.", listOf(2 to 2, 4 to 2, 2 to 1, 1 to 1)),
+    MUSIC("Now playing", "Controls whatever you're listening to.", listOf(2 to 2, 4 to 2, 4 to 1, 2 to 1, 1 to 1)),
     CALENDAR("Calendar", "What's coming up, from every calendar you use.", listOf(4 to 1, 2 to 1, 2 to 2, 4 to 2, 4 to 4, 1 to 1)),
     SEARCH("Search", "Apps and people first, then the web.", listOf(4 to 1, 2 to 1, 1 to 1, 4 to 2)),
     FAVS("People", "Call your starred contacts in one tap.", listOf(2 to 1, 1 to 2, 2 to 2, 4 to 1)),

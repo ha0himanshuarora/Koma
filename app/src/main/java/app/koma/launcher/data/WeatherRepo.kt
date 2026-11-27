@@ -122,7 +122,7 @@ object WeatherRepo {
         }
     }
 
-    private fun lastLocation(ctx: Context, prefs: SharedPreferences): Pair<Double, Double>? {
+    internal fun lastLocation(ctx: Context, prefs: SharedPreferences): Pair<Double, Double>? {
         if (granted(ctx)) {
             try {
                 val lm = ctx.getSystemService(Context.LOCATION_SERVICE) as LocationManager
