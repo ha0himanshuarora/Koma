@@ -655,11 +655,12 @@ private fun HomeGrid(state: HomeState, ctx: Context, scroll: ScrollState) {
                                 // Handles sit on every edge and the bottom-right corner; drag any of them to resize that way.
                                 // sx/sy say which way a drag grows the tile: -1 for left/top, 1 for right/bottom, 0 for none.
                                 @Composable
-                                fun Handle(cx: Float, cy: Float, sx: Int, sy: Int) {
+                                fun Handle(cx: Float, cy: Float, sx: Int, sy: Int, hitW: Float, hitH: Float) {
+                                    val dens = LocalDensity.current
                                     Box(
                                         Modifier
-                                            .offset { IntOffset((cx - 22.dp.toPx()).roundToInt(), (cy - 22.dp.toPx()).roundToInt()) }
-                                            .size(44.dp)
+                                            .offset { IntOffset((cx - hitW / 2).roundToInt(), (cy - hitH / 2).roundToInt()) }
+                                            .size(with(dens) { hitW.toDp() }, with(dens) { hitH.toDp() })
                                             .pointerInput(t.id, sx, sy) {
                                                 var accX = 0f
                                                 var accY = 0f
@@ -711,15 +712,27 @@ private fun HomeGrid(state: HomeState, ctx: Context, scroll: ScrollState) {
                                 val inset = gapPx
                                 val midX = o.x + wPx / 2
                                 val midY = o.y + hPx / 2
+                                val edge = 44.dp.toPx()
+                                val corner = 56.dp.toPx()
+                                // Edge zones run along most of the side, so a drag anywhere along it grabs the handle.
+                                val alongV = maxOf(hPx * 0.6f, 64.dp.toPx())
+                                val alongH = maxOf(wPx * 0.6f, 64.dp.toPx())
                                 if (canW) {
-                                    Handle(o.x + wPx - inset, midY, 1, 0)
-                                    Handle(o.x + inset, midY, -1, 0)
+                                    Handle(o.x + wPx - inset - edge / 4, midY, 1, 0, edge, alongV)
+                                    Handle(o.x + inset + edge / 4, midY, -1, 0, edge, alongV)
                                 }
                                 if (canH) {
-                                    Handle(midX, o.y + hPx - inset, 0, 1)
-                                    Handle(midX, o.y + inset, 0, -1)
+                                    Handle(midX, o.y + hPx - inset - edge / 4, 0, 1, alongH, edge)
+                                    Handle(midX, o.y + inset + edge / 4, 0, -1, alongH, edge)
                                 }
-                                if (canW && canH) Handle(o.x + wPx - inset, o.y + hPx - inset, 1, 1)
+                                // Corners are drawn last, so they win where they overlap an edge.
+                                if (canW && canH) {
+                                    val k = corner / 2 - 4.dp.toPx()
+                                    Handle(o.x + wPx - inset - k, o.y + hPx - inset - k, 1, 1, corner, corner)
+                                    Handle(o.x + inset + k, o.y + hPx - inset - k, -1, 1, corner, corner)
+                                    Handle(o.x + wPx - inset - k, o.y + inset + k, 1, -1, corner, corner)
+                                    Handle(o.x + inset + k, o.y + inset + k, -1, -1, corner, corner)
+                                }
                             }
                         }
                     }
