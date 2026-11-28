@@ -163,103 +163,27 @@ object Device {
     fun appUsage(ctx: Context, start: Long, end: Long): Map<String, Long> {
         val out = HashMap<String, Long>()
         try {
-            val usm = ctx.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
-            val ev = usm.queryEvents(start, end)
-            val e = UsageEvents.Event()
-            val open = HashMap<String, Long>()
-            fun add(pkg: String, ms: Long) { if (ms > 0L) out[pkg] = (out[pkg] ?: 0L) + ms }
-            while (ev.hasNextEvent()) {
-                ev.getNextEvent(e)
-                val pkg = e.packageName ?: continue
-                when (e.eventType) {
-                    1 -> if (open.size != 1 || pkg !in open) { // one app is in front at a time
-                        open.forEach { (p, s) -> add(p, e.timeStamp - s) }
-                        open.clear()
-                        open[pkg] = e.timeStamp
-                    }
-                    2 -> open.remove(pkg)?.let { add(pkg, e.timeStamp - it) }
-                    16, 26 -> {
-                        open.forEach { (p, s) -> add(p, e.timeStamp - s) }
-                        open.clear()
-                    }
-                }
+            UsageEngine.run(ctx, start, end, live = end >= System.currentTimeMillis() - 5_000L, kind = { _, _ -> UsageEngine.COUNT }) { pkg, s, e ->
+                out[pkg] = (out[pkg] ?: 0L) + (e - s)
             }
-            if (end >= System.currentTimeMillis() - 5_000L) open.forEach { (p, s) -> add(p, end - s) }
         } catch (ex: Exception) {
         }
         return out
     }
 
-    /** Today's foreground time per app (launchable apps only, not home screens or Koma), longest first. */
+    /** Today's foreground time per app (launchable apps only, not the home screen), longest first. Apps that were removed are left out. */
     fun todayApps(ctx: Context): List<Pair<String, Long>> {
         if (!usageGranted(ctx)) return emptyList()
-        val pm = ctx.packageManager
-        val start = LocalDate.now().atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
-        val homes = pm.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME), 0).map { it.activityInfo.packageName }.toSet()
-        return appUsage(ctx, start, System.currentTimeMillis())
-            .filter { (pkg, ms) -> ms >= 30_000L && pkg != ctx.packageName && pkg !in homes && pm.getLaunchIntentForPackage(pkg) != null }
-            .toList().sortedByDescending { it.second }
+        return UsageRepo.day(ctx, LocalDate.now()).apps
     }
-
-    private val pastDays = HashMap<LocalDate, Int>()
 
     /**
      * Foreground minutes for today and the 6 days before it, oldest first. Counted from the usage events the way the
-     * phone's own screen time is: only apps you can launch, not home screens, not Koma, and nothing while the screen is off.
+     * phone's own screen time is, by the same code the Screen time app uses, so the tile and the app always agree.
      */
     fun screenMinutes(ctx: Context): List<Int> {
         if (!usageGranted(ctx)) return emptyList()
-        val usm = ctx.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
-        val pm = ctx.packageManager
-        val zone = ZoneId.systemDefault()
-        val today = LocalDate.now()
-        val homes = pm.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME), 0).map { it.activityInfo.packageName }.toSet()
-        val counts = HashMap<String, Boolean>()
-        fun counted(pkg: String): Boolean = counts.getOrPut(pkg) {
-            pkg != ctx.packageName && pkg !in homes && pm.getLaunchIntentForPackage(pkg) != null
-        }
-        val out = ArrayList<Int>()
-        for (back in 6 downTo 0) {
-            val d = today.minusDays(back.toLong())
-            val cached = if (back > 0) pastDays[d] else null
-            if (cached != null) {
-                out.add(cached)
-                continue
-            }
-            val start = d.atStartOfDay(zone).toInstant().toEpochMilli()
-            val now = System.currentTimeMillis()
-            val end = minOf(d.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli(), now)
-            var total = 0L
-            if (end > start) {
-                try {
-                    val ev = usm.queryEvents(start, end)
-                    val e = UsageEvents.Event()
-                    val open = HashMap<String, Long>()
-                    while (ev.hasNextEvent()) {
-                        ev.getNextEvent(e)
-                        val pkg = e.packageName ?: continue
-                        when (e.eventType) {
-                            1 -> if (open.size != 1 || pkg !in open) { // an activity came to the front, so whatever was open ends
-                                open.values.forEach { total += (e.timeStamp - it).coerceAtLeast(0L) }
-                                open.clear()
-                                if (counted(pkg)) open[pkg] = e.timeStamp
-                            }
-                            2 -> open.remove(pkg)?.let { total += (e.timeStamp - it).coerceAtLeast(0L) } // and went away
-                            16, 26 -> { // screen off, shutdown
-                                open.values.forEach { total += (e.timeStamp - it).coerceAtLeast(0L) }
-                                open.clear()
-                            }
-                        }
-                    }
-                    if (end == now) open.values.forEach { total += (end - it).coerceAtLeast(0L) }
-                } catch (ex: Exception) {
-                }
-            }
-            val mins = (total / 60_000L).toInt()
-            if (back > 0) pastDays[d] = mins
-            out.add(mins)
-        }
-        return out
+        return UsageRepo.week(ctx).map { (it.total / 60_000L).toInt() }
     }
 }
 

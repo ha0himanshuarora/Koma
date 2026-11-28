@@ -65,6 +65,10 @@ private fun dur(ms: Long): String {
 
 private fun mins(m: Int) = dur(m * 60_000L)
 
+/** The name to show for an app. Koma's own apps (Notes, Clock and the rest) share one entry. */
+private fun appName(state: HomeState, pkg: String): String =
+    state.apps.firstOrNull { it.pkg == pkg }?.label ?: if (pkg.startsWith("app.koma.")) "Koma apps" else pkg
+
 private fun hourName(h: Int): String =
     if (TimeFmt.is24()) "%02d".format(h) else "${if (h % 12 == 0) 12 else h % 12}${if (h < 12) "a" else "p"}"
 
@@ -103,6 +107,9 @@ fun ScreenTimeApp(state: HomeState) {
         while (true) {
             awaitVisible()
             value = if (granted) withContext(Dispatchers.IO) {
+                // An app that was removed loses its limit too, so it does not linger in the list.
+                val pm = ctx.packageManager
+                AppLimits.all(ctx).keys.filter { !UsageRepo.installed(pm, it) }.forEach { AppLimits.set(ctx, it, 0) }
                 val used = AppLimits.all(ctx).mapValues { (p, l) -> try { AppLimits.usedMs(ctx, p, l) } catch (e: Exception) { 0L } }
                 STData(UsageRepo.week(ctx), used)
             } else STData(emptyList(), emptyMap())
@@ -184,7 +191,7 @@ private fun AppRow(state: HomeState, data: STData, pkg: String, ms: Long, top: L
     ) {
         AppIcon(state.icons, info, 38.dp, bg = pal.tiles[0], ink = pal.ink, line = pal.onGround)
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            BasicText(info?.label ?: pkg, style = bodyStyle(pal.onGround, 15, medium = true), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            BasicText(appName(state, pkg), style = bodyStyle(pal.onGround, 15, medium = true), maxLines = 1, overflow = TextOverflow.Ellipsis)
             Box(Modifier.fillMaxWidth().height(4.dp).clip(CircleShape).background(pal.onGround.copy(alpha = 0.14f))) {
                 Box(Modifier.fillMaxHeight().fillMaxWidth((ms.toFloat() / top.coerceAtLeast(1L)).coerceIn(0.03f, 1f)).clip(CircleShape).background(pal.tiles[0]))
             }
@@ -197,6 +204,29 @@ private fun AppRow(state: HomeState, data: STData, pkg: String, ms: Long, top: L
                 else -> sub
             }
             if (tag.isNotEmpty()) BasicText(tag, style = monoStyle(if (limit != null) pal.tiles[0] else pal.onGround.copy(alpha = 0.55f), 9, bold = limit != null), maxLines = 1)
+        }
+    }
+}
+
+/** One bar split by how much of the time each of the top apps took, with the rest as a grey end. */
+@Composable
+private fun ShareBar(state: HomeState, apps: List<Pair<String, Long>>, total: Long) {
+    val pal = state.palette
+    if (apps.size < 2 || total <= 0L) return
+    val shown = apps.take(4)
+    val rest = (total - shown.sumOf { it.second }).coerceAtLeast(0L)
+    Column(Modifier.padding(horizontal = 14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.fillMaxWidth().height(10.dp).clip(CircleShape), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+            shown.forEachIndexed { i, (_, ms) -> Box(Modifier.weight(ms.toFloat().coerceAtLeast(1f)).fillMaxHeight().background(pal.all[i % pal.all.size])) }
+            if (rest > 0L) Box(Modifier.weight(rest.toFloat()).fillMaxHeight().background(pal.onGround.copy(alpha = 0.2f)))
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            shown.take(3).forEachIndexed { i, (p, ms) ->
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp), modifier = Modifier.weight(1f)) {
+                    Box(Modifier.size(8.dp).clip(CircleShape).background(pal.all[i % pal.all.size]))
+                    BasicText(appName(state, p) + " " + (ms * 100 / total) + "%", style = monoStyle(pal.onGround.copy(alpha = 0.7f), 9), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
         }
     }
 }
@@ -269,32 +299,37 @@ private fun DayTab(state: HomeState, data: STData, back: Int, setBack: (Int) -> 
 
     val maxH = (day.hours.maxOrNull() ?: 1L).coerceAtLeast(1L)
     val peak = day.hours.indices.maxByOrNull { day.hours[it] } ?: 0
+    var selH by remember(day.day) { mutableIntStateOf(-1) }
     InfoCard("BY HOUR") {
         Column(Modifier.padding(horizontal = 14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(Modifier.fillMaxWidth().height(96.dp), horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.Bottom) {
                 day.hours.forEachIndexed { h, ms ->
-                    Box(
-                        Modifier.weight(1f).fillMaxHeight((ms.toFloat() / maxH).coerceIn(0.04f, 1f)).clip(RoundedCornerShape(4.dp))
-                            .background(
-                                when {
-                                    ms <= 0L -> pal.onGround.copy(alpha = 0.1f)
-                                    h == peak -> pal.tiles[0]
-                                    else -> pal.tiles[0].copy(alpha = 0.5f)
-                                },
-                            ),
-                    )
+                    val lit = if (selH >= 0) h == selH else h == peak
+                    Box(Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(4.dp)).clickable { selH = if (selH == h) -1 else h }, contentAlignment = Alignment.BottomCenter) {
+                        Box(
+                            Modifier.fillMaxWidth().fillMaxHeight((ms.toFloat() / maxH).coerceIn(0.04f, 1f)).clip(RoundedCornerShape(4.dp))
+                                .background(
+                                    when {
+                                        ms <= 0L -> pal.onGround.copy(alpha = 0.1f)
+                                        lit -> pal.tiles[0]
+                                        else -> pal.tiles[0].copy(alpha = 0.45f)
+                                    },
+                                ),
+                        )
+                    }
                 }
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 listOf(0, 6, 12, 18).forEach { BasicText(hourName(it), style = monoStyle(pal.onGround.copy(alpha = 0.55f), 10)) }
             }
-            if (day.hours[peak] > 0L) BasicText("Busiest hour ${hourName(peak)}, ${dur(day.hours[peak])}", style = bodyStyle(pal.onGround.copy(alpha = 0.7f), 13))
+            if (selH >= 0) BasicText("${hourName(selH)} to ${hourName((selH + 1) % 24)}: ${dur(day.hours[selH])}", style = bodyStyle(pal.onGround, 13, medium = true))
+            else if (day.hours[peak] > 0L) BasicText("Busiest hour ${hourName(peak)}, ${dur(day.hours[peak])}. Tap a bar to see another.", style = bodyStyle(pal.onGround.copy(alpha = 0.7f), 13))
         }
     }
 
     val zone = ZoneId.systemDefault()
     val runs = FocusEngine.runs.filter { Instant.ofEpochMilli(it.start).atZone(zone).toLocalDate() == day.day }
-    val label = { pkg: String -> state.apps.firstOrNull { it.pkg == pkg }?.label ?: pkg }
+    val label = { pkg: String -> appName(state, pkg) }
     StatGrid(
         listOf(
             WStat("Pickups", "${day.pickups}", if (day.pickups > 0 && day.total > 0L) "Every ${dur(day.total / day.pickups)} on average" else ""),
@@ -311,6 +346,7 @@ private fun DayTab(state: HomeState, data: STData, back: Int, setBack: (Int) -> 
     InfoCard("APPS") {
         val top = day.apps.firstOrNull()?.second ?: 1L
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            ShareBar(state, day.apps, day.total)
             if (day.apps.isEmpty()) BasicText("Nothing recorded for this day.", style = bodyStyle(pal.onGround.copy(alpha = 0.7f), 14), modifier = Modifier.padding(horizontal = 14.dp))
             (if (all) day.apps else day.apps.take(8)).forEach { (p, ms) ->
                 AppRow(state, data, p, ms, top, "${ms * 100 / day.total.coerceAtLeast(1L)}%") { openApp(p) }
@@ -392,7 +428,7 @@ private fun WeekTab(state: HomeState, data: STData, openDay: (Int) -> Unit, open
 private fun LimitsTab(state: HomeState, data: STData, add: () -> Unit, openApp: (String) -> Unit) {
     val pal = state.palette
     val ctx = LocalContext.current
-    val limits = AppLimits.all(ctx).toList().sortedBy { (p, _) -> state.apps.firstOrNull { it.pkg == p }?.label ?: p }
+    val limits = AppLimits.all(ctx).toList().filter { (p, _) -> UsageRepo.installed(ctx.packageManager, p) }.sortedBy { (p, _) -> state.apps.firstOrNull { it.pkg == p }?.label ?: p }
     val locked = limits.count { (p, _) -> AppLimits.isLocked(ctx, p) }
     PageHero(
         "APP LIMITS", if (limits.isEmpty()) "None set" else "${limits.size} with a limit",
