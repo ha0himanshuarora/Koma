@@ -51,7 +51,7 @@ fun EditTopBar(state: HomeState) {
         Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        BarIcon("close") { state.cancelEdit() }
+        BarIcon("close", modifier = Modifier.tourTarget("edit_cancel")) { state.cancelEdit() }
         Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
             BasicText("EDIT LAYOUT", style = dispStyle(pal.onGround, 20))
             BasicText(
@@ -59,16 +59,16 @@ fun EditTopBar(state: HomeState) {
                 style = monoStyle(pal.onGround.copy(alpha = 0.6f), 9), maxLines = 1,
             )
         }
-        Pill("DONE", pal.tiles[0], pal.ink, height = 38) { state.finishEdit() }
+        Pill("DONE", pal.tiles[0], pal.ink, Modifier.tourTarget("edit_done"), height = 38) { state.finishEdit() }
     }
 }
 
 /** A round icon button for the edit bar. */
 @Composable
-private fun BarIcon(glyph: String, size: Int = 40, onClick: () -> Unit) {
+private fun BarIcon(glyph: String, size: Int = 40, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val pal = LocalPalette.current
     Box(
-        Modifier.size(size.dp).clip(CircleShape).background(pal.onGround.copy(alpha = 0.12f)).clickable(onClick = onClick),
+        modifier.size(size.dp).clip(CircleShape).background(pal.onGround.copy(alpha = 0.12f)).clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) { Glyph(glyph, pal.onGround, (size / 2).dp, 2.2f) }
 }
@@ -83,17 +83,17 @@ fun EditBar(state: HomeState) {
     val sel = state.tiles.firstOrNull { it.id == state.selectedId }
     Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp)) {
         Row(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(28.dp)).background(pal.onGround.copy(alpha = 0.1f)).padding(8.dp),
+            Modifier.tourTarget("edit_bar").fillMaxWidth().clip(RoundedCornerShape(28.dp)).background(pal.onGround.copy(alpha = 0.1f)).padding(8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             // With a tile selected the bar has more to hold, so ADD shrinks to a plus and the icons to 36dp.
-            Pill(if (sel != null) "+" else "+ ADD", pal.tiles[0], pal.ink, height = 40) {
+            Pill(if (sel != null) "+" else "+ ADD", pal.tiles[0], pal.ink, Modifier.tourTarget("edit_add"), height = 40) {
                 state.stackTarget = null
                 state.showPicker = true
             }
             if (sel != null) {
-                Pill("OPTIONS", pal.onGround, pal.ground, height = 40) { state.sheetId = sel.id }
+                Pill("OPTIONS", pal.onGround, pal.ground, Modifier.tourTarget("edit_options"), height = 40) { state.sheetId = sel.id }
                 // Remove is the X on the tile itself (and in Options). This swatch is the tile's colour: tap to try the next one.
                 // In a stack it follows the component showing right now, so swipe to another and it colours that one.
                 val inStack = sel.kind == Kind.STACK

@@ -1277,11 +1277,11 @@ fun AllAppsTile(ground: Color, fg: Color) {
 @Composable
 fun WeatherTile(
     w: Int, h: Int, bg: Color, ink: Color, granted: Boolean, load: suspend () -> Weather?, cached: Weather?,
-    showHiLo: Boolean = true, showCat: Boolean = true, showCity: Boolean = false, source: String = "",
+    showHiLo: Boolean = true, showCat: Boolean = true, showCity: Boolean = false, source: String = "", fahrenheit: Boolean = false,
     load2: suspend () -> Weather? = { null }, cached2: Weather? = null, hasSecond: Boolean = false,
 ) {
     if (w >= 4) {
-        WeatherPair(h, bg, ink, granted, load, cached, load2, cached2, hasSecond, showHiLo, showCat, source)
+        WeatherPair(h, bg, ink, granted, load, cached, load2, cached2, hasSecond, showHiLo, showCat, source, fahrenheit)
         return
     }
     val weather by produceState(cached, granted, source) {
@@ -1294,13 +1294,7 @@ fun WeatherTile(
     val data = weather
     val (cond, glyph) = if (data != null) WeatherRepo.describe(data.code) else (if (granted) "No data" else "Tap for location") to "cloud"
     val temp = if (data != null) "${data.temp}°" else "--°"
-    val mood = when {
-        data == null -> "cloud"
-        glyph == "rain" || glyph == "snow" || glyph == "storm" || glyph == "fog" -> glyph
-        !data.day -> "night"
-        glyph == "sun" -> "sun"
-        else -> "cloud"
-    }
+    val mood = if (data == null) "cloud" else catMood(glyph, data.day)
     Box(Modifier.fillMaxSize().clip(TileShape).background(bg)) {
         when {
             w >= 2 && h >= 2 -> androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -1316,7 +1310,7 @@ fun WeatherTile(
                     Spacer(Modifier.weight(1f))
                     if (showHiLo && data != null) BasicText(if (showCity) "H ${data.hi}  L ${data.lo}" else "H ${data.hi}\nL ${data.lo}", style = label(ink, 11.sp).copy(letterSpacing = 0.1.em))
                 }
-                if (showCat) Cat(mood = mood, modifier = Modifier.align(Alignment.BottomEnd).padding(end = 6.dp).size(width = catW, height = catW * 84 / 124))
+                if (showCat) Cat(mood = mood, cup = catCup(mood, data?.temp, fahrenheit), modifier = Modifier.align(Alignment.BottomEnd).padding(end = 6.dp).size(width = catW, height = catW * 84 / 124))
             }
             w >= 2 -> Row(
                 Modifier.fillMaxSize().padding(horizontal = 14.dp),
@@ -2065,7 +2059,7 @@ private fun WeatherPair(
     h: Int, bg: Color, ink: Color, granted: Boolean,
     load: suspend () -> Weather?, cached: Weather?,
     load2: suspend () -> Weather?, cached2: Weather?, hasSecond: Boolean,
-    showHiLo: Boolean, showCat: Boolean, source: String,
+    showHiLo: Boolean, showCat: Boolean, source: String, fahrenheit: Boolean,
 ) {
     val first by produceState(cached, granted, source) {
         while (true) {
@@ -2083,23 +2077,17 @@ private fun WeatherPair(
         }
     }
     Row(Modifier.fillMaxSize().clip(TileShape).background(bg)) {
-        WeatherHalf(Modifier.weight(1f), h, ink, first, if (granted) "No data" else "Tap for location", showHiLo, showCat)
+        WeatherHalf(Modifier.weight(1f), h, ink, first, if (granted) "No data" else "Tap for location", showHiLo, showCat, fahrenheit)
         Box(Modifier.width(1.dp).fillMaxHeight().padding(vertical = 14.dp).background(ink.copy(alpha = 0.18f)))
-        WeatherHalf(Modifier.weight(1f), h, ink, second, if (hasSecond) "No data" else "Add a second place in options", showHiLo, showCat)
+        WeatherHalf(Modifier.weight(1f), h, ink, second, if (hasSecond) "No data" else "Add a second place in options", showHiLo, showCat, fahrenheit)
     }
 }
 
 @Composable
-private fun WeatherHalf(modifier: Modifier, h: Int, ink: Color, data: Weather?, empty: String, showHiLo: Boolean, showCat: Boolean) {
+private fun WeatherHalf(modifier: Modifier, h: Int, ink: Color, data: Weather?, empty: String, showHiLo: Boolean, showCat: Boolean, fahrenheit: Boolean) {
     val (cond, glyph) = if (data != null) WeatherRepo.describe(data.code) else empty to "cloud"
     val temp = if (data != null) "${data.temp}°" else "--°"
-    val mood = when {
-        data == null -> "cloud"
-        glyph == "rain" || glyph == "snow" || glyph == "storm" || glyph == "fog" -> glyph
-        !data.day -> "night"
-        glyph == "sun" -> "sun"
-        else -> "cloud"
-    }
+    val mood = if (data == null) "cloud" else catMood(glyph, data.day)
     Box(modifier.fillMaxHeight()) {
         if (h >= 2) {
             Column(Modifier.fillMaxSize().padding(14.dp)) {
@@ -2112,7 +2100,7 @@ private fun WeatherHalf(modifier: Modifier, h: Int, ink: Color, data: Weather?, 
                 Spacer(Modifier.weight(1f))
                 if (showHiLo && data != null) BasicText("H ${data.hi}  L ${data.lo}", style = label(ink, 10.sp))
             }
-            if (showCat) Cat(mood = mood, modifier = Modifier.align(Alignment.BottomEnd).padding(end = 4.dp).size(width = 84.dp, height = 57.dp))
+            if (showCat) Cat(mood = mood, cup = catCup(mood, data?.temp, fahrenheit), modifier = Modifier.align(Alignment.BottomEnd).padding(end = 4.dp).size(width = 84.dp, height = 57.dp))
         } else {
             Row(Modifier.fillMaxSize().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {

@@ -71,7 +71,7 @@ object ForecastRepo {
                 val f = fahrenheit(unit)
                 val url = "https://api.open-meteo.com/v1/forecast?latitude=${loc.first}&longitude=${loc.second}" +
                     "&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,is_day,wind_speed_10m," +
-                    "wind_direction_10m,surface_pressure,precipitation,cloud_cover" +
+                    "wind_direction_10m,pressure_msl,surface_pressure,precipitation,cloud_cover" +
                     "&hourly=temperature_2m,weather_code,precipitation_probability,is_day" +
                     "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max," +
                     "sunrise,sunset,uv_index_max,wind_speed_10m_max" +
@@ -149,7 +149,7 @@ object ForecastRepo {
                 feels = Math.round(c.optDouble("apparent_temperature", c.getDouble("temperature_2m"))).toInt(),
                 code = c.getInt("weather_code"), day = c.optInt("is_day", 1) == 1,
                 humidity = c.optInt("relative_humidity_2m"), wind = Math.round(c.optDouble("wind_speed_10m")).toInt(),
-                windDir = c.optInt("wind_direction_10m"), pressure = Math.round(c.optDouble("surface_pressure")).toInt(),
+                windDir = c.optInt("wind_direction_10m"), pressure = Math.round(c.optDouble("pressure_msl", c.optDouble("surface_pressure"))).toInt(),
                 precip = c.optDouble("precipitation", 0.0), cloud = c.optInt("cloud_cover"),
                 aqi = aqi, hours = hours, days = days,
             )

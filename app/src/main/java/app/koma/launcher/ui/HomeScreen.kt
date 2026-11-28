@@ -305,6 +305,7 @@ fun HomeScreen(state: HomeState, homePress: Int, homeInApp: Boolean = false) {
             }
             state.focusDone?.let { FocusDoneScreen(state, it) }
             state.strictAsk?.let { go -> StrictConfirm(state, onConfirm = { state.strictAsk = null; go() }, onCancel = { state.strictAsk = null }) }
+            if (state.standaloneExit == null) TourOverlay(state)
         }
     }
 }
@@ -857,10 +858,11 @@ private fun TileFrame(
                                 )
                             } else Modifier,
                         )
+                        .then(if (state.tour.holdOnly && tile.id == state.tiles.firstOrNull()?.id) Modifier.tourTarget("tour_tile") else Modifier)
                         .combinedClickable(
                             interactionSource = none,
                             indication = null,
-                            onClick = click,
+                            onClick = { if (!state.tour.holdOnly) click() },
                             onLongClick = { gest["long"]?.let { runGesture(state, it) } ?: state.startEdit() },
                             onDoubleClick = gest["double"]?.let { a -> { runGesture(state, a) } },
                         )
@@ -1017,6 +1019,7 @@ internal fun TileBody(
             cached = state.cachedWeather(),
             showHiLo = state.prefs.weatherHiLo,
             showCat = state.prefs.weatherCat,
+            fahrenheit = useFahrenheit(state.prefs.weatherUnit),
             showCity = state.prefs.weatherCity,
             source = state.prefs.weatherUnit + state.prefs.weatherPlace + state.prefs.weatherPlace2,
             load2 = { state.loadWeather2() },

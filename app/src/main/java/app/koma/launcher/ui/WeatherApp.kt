@@ -98,7 +98,7 @@ private fun aqiWord(a: Int) = when {
     else -> "Hazardous"
 }
 
-internal class WStat(val label: String, val value: String, val sub: String)
+internal class WStat(val label: String, val value: String, val sub: String, val gauge: Float? = null)
 
 @Composable
 internal fun StatCard(s: WStat, modifier: Modifier) {
@@ -110,6 +110,11 @@ internal fun StatCard(s: WStat, modifier: Modifier) {
         BasicText(s.label.uppercase(), style = monoStyle(pal.onGround.copy(alpha = 0.6f), 10), maxLines = 1)
         BasicText(s.value, style = dispStyle(pal.onGround, 26), maxLines = 1, overflow = TextOverflow.Ellipsis)
         if (s.sub.isNotEmpty()) BasicText(s.sub, style = bodyStyle(pal.onGround.copy(alpha = 0.65f), 12), maxLines = 2)
+        s.gauge?.let { g ->
+            Box(Modifier.padding(top = 6.dp).fillMaxWidth().height(5.dp).clip(CircleShape).background(pal.onGround.copy(alpha = 0.14f))) {
+                Box(Modifier.fillMaxWidth(g.coerceIn(0.04f, 1f)).fillMaxHeight().clip(CircleShape).background(pal.tiles[0]))
+            }
+        }
     }
 }
 
@@ -165,102 +170,110 @@ fun WeatherApp(state: HomeState) {
         prefs.weatherSel = i
     }
 
+    var settings by remember { mutableStateOf(false) }
+    var tab by remember { mutableIntStateOf(0) }
+    androidx.activity.compose.BackHandler(enabled = settings) { settings = false }
+    if (settings) {
+        AppPage(title = "Weather", sub = "SETTINGS", onBack = { settings = false }) {
+            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                WeatherSettingsBody(state)
+                Spacer(Modifier.height(24.dp))
+            }
+        }
+        return
+    }
+
     AppPage(
         title = "Weather",
-        sub = cur.name,
+        sub = if (tab == 3) "Places" else cur.name,
         onBack = { state.exitApp() },
+        nav = { PillNav(listOf("sun" to "NOW", "cal" to "WEEK", "bars" to "DETAILS", "device" to "PLACES"), tab) { tab = it } },
         actions = {
             CircleBtn("refresh") { refreshTick++ }
+            CircleBtn("settings") { settings = true }
             CircleBtn("plus", accent = true) { adding = true }
         },
     ) {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            val chipOff = surfaceColor(0.1f)
-            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                places.forEachIndexed { i, p ->
-                    val on = p === cur
-                    Box(
-                        Modifier.height(38.dp).clip(RoundedCornerShape(50)).background(if (on) pal.tiles[0] else chipOff)
-                            .clickable { pick(i) }.padding(horizontal = 16.dp),
-                        contentAlignment = Alignment.Center,
-                    ) { BasicText(p.name.uppercase(), style = monoStyle(if (on) pal.ink else pal.onGround, 11, bold = true), maxLines = 1) }
-                }
-            }
-
             val f = fc
-            if (needsLocation) {
-                InfoCard("LOCATION") {
-                    Column(Modifier.padding(horizontal = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        BasicText("Allow location to see the weather where you are, or add a city instead. Only rounded coordinates are sent.", style = bodyStyle(pal.onGround.copy(alpha = 0.8f), 14))
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Pill("ALLOW LOCATION", pal.tiles[0], pal.ink) { state.request(Manifest.permission.ACCESS_COARSE_LOCATION) }
-                            Pill("ADD A CITY", pal.onGround.copy(alpha = 0.14f), pal.onGround) { adding = true }
+            if (tab == 3) {
+                Group("PLACES") {
+                    places.forEachIndexed { i, p ->
+                        val role = when (p.role) {
+                            "tile" -> if (p.key.isEmpty()) "This phone, on the tile" else "On the tile"
+                            "tile2" -> "Beside it on the tile"
+                            else -> "Saved"
                         }
+                        ListRow(p.name, role + if (p === cur) "  /  SHOWING" else "", if (p.key.isEmpty()) "device" else "sun", pal.tiles[i % pal.tiles.size], onClick = { pick(i); tab = 0 })
                     }
                 }
-            } else if (f == null) {
-                InfoCard(if (loading) "LOADING" else "NO FORECAST") {
-                    Column(Modifier.padding(horizontal = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        BasicText(
-                            if (loading) "Getting the forecast..." else "The forecast could not be loaded. Check your internet connection" +
-                                if (cur.key.isEmpty()) " and that this phone has a recent location." else ".",
-                            style = bodyStyle(pal.onGround.copy(alpha = 0.8f), 14),
+                Group("THIS PLACE", hint = "The tile on the home screen shows its first place, and the wide sizes a second one.") {
+                    when (cur.role) {
+                        "saved" -> {
+                            ListRow("Show on tile", "", "sun", pal.tiles[0], onClick = {
+                                val old = prefs.weatherPlace
+                                if (old.isNotEmpty()) saveCity(old)
+                                forgetCity(cur.key)
+                                state.setWeatherSource(place = cur.key)
+                                pick(0)
+                            })
+                            ListRow("Show beside it on tile", "", "cloud", pal.tiles[1 % pal.tiles.size], onClick = {
+                                val old = prefs.weatherPlace2
+                                if (old.isNotEmpty()) saveCity(old)
+                                forgetCity(cur.key)
+                                state.setWeatherSource(place2 = cur.key)
+                                pick(wPlaces(state).indexOfFirst { it.key == cur.key }.coerceAtLeast(0))
+                            })
+                            ListRow("Remove", "", "trash", pal.tiles[2 % pal.tiles.size], onClick = { forgetCity(cur.key); pick(0) })
+                        }
+                        "tile2" -> ListRow("Stop showing on tile", "", "close", pal.tiles[2 % pal.tiles.size], onClick = {
+                            saveCity(cur.key)
+                            state.setWeatherSource(place2 = "")
+                        })
+                        else -> if (cur.key.isNotEmpty()) ListRow("Use my location on tile", "", "device", pal.tiles[0], onClick = {
+                            saveCity(cur.key)
+                            state.setWeatherSource(place = "")
+                            pick(0)
+                        }) else BasicText(
+                            "This phone's location is shown on the tile.",
+                            style = bodyStyle(pal.onGround.copy(alpha = 0.7f), 13), modifier = Modifier.padding(14.dp),
                         )
-                        if (!loading) Pill("TRY AGAIN", pal.tiles[0], pal.ink) { refreshTick++ }
                     }
+                    ListRow("Add a city", "", "plus", pal.tiles[3 % pal.tiles.size], onClick = { adding = true })
                 }
             } else {
-                Forecasted(state, f)
-            }
-
-            Group("TEMPERATURE") {
-                ChipRow(listOf("auto" to "AUTO", "c" to "CELSIUS", "f" to "FAHRENHEIT"), prefs.weatherUnit, title = "Unit") { state.setWeatherSource(unit = it) }
-            }
-            Group("THIS PLACE", hint = "The tile on the home screen shows its first place, and the wide sizes a second one.") {
-                when (cur.role) {
-                    "saved" -> {
-                        ListRow("Show on tile", "", "sun", pal.tiles[0], onClick = {
-                            val old = prefs.weatherPlace
-                            if (old.isNotEmpty()) saveCity(old)
-                            forgetCity(cur.key)
-                            state.setWeatherSource(place = cur.key)
-                            pick(0)
-                        })
-                        ListRow("Show beside it on tile", "", "cloud", pal.tiles[1 % pal.tiles.size], onClick = {
-                            val old = prefs.weatherPlace2
-                            if (old.isNotEmpty()) saveCity(old)
-                            forgetCity(cur.key)
-                            state.setWeatherSource(place2 = cur.key)
-                            pick(wPlaces(state).indexOfFirst { it.key == cur.key }.coerceAtLeast(0))
-                        })
-                        ListRow("Remove", "", "trash", pal.tiles[2 % pal.tiles.size], onClick = { forgetCity(cur.key); pick(0) })
+                if (needsLocation) {
+                    InfoCard("LOCATION") {
+                        Column(Modifier.padding(horizontal = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            BasicText("Allow location to see the weather where you are, or add a city instead. Only rounded coordinates are sent.", style = bodyStyle(pal.onGround.copy(alpha = 0.8f), 14))
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Pill("ALLOW LOCATION", pal.tiles[0], pal.ink) { state.request(Manifest.permission.ACCESS_COARSE_LOCATION) }
+                                Pill("ADD A CITY", pal.onGround.copy(alpha = 0.14f), pal.onGround) { adding = true }
+                            }
+                        }
                     }
-                    "tile2" -> ListRow("Stop showing on tile", "", "close", pal.tiles[2 % pal.tiles.size], onClick = {
-                        saveCity(cur.key)
-                        state.setWeatherSource(place2 = "")
-                    })
-                    else -> if (cur.key.isNotEmpty()) ListRow("Use my location on tile", "", "device", pal.tiles[0], onClick = {
-                        saveCity(cur.key)
-                        state.setWeatherSource(place = "")
-                        pick(0)
-                    }) else BasicText(
-                        "This phone's location is shown on the tile.",
-                        style = bodyStyle(pal.onGround.copy(alpha = 0.7f), 13), modifier = Modifier.padding(14.dp),
+                } else if (f == null) {
+                    InfoCard(if (loading) "LOADING" else "NO FORECAST") {
+                        Column(Modifier.padding(horizontal = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            BasicText(
+                                if (loading) "Getting the forecast..." else "The forecast could not be loaded. Check your internet connection" +
+                                    if (cur.key.isEmpty()) " and that this phone has a recent location." else ".",
+                                style = bodyStyle(pal.onGround.copy(alpha = 0.8f), 14),
+                            )
+                            if (!loading) Pill("TRY AGAIN", pal.tiles[0], pal.ink) { refreshTick++ }
+                        }
+                    }
+                } else {
+                    Forecasted(state, f, tab)
+                }
+
+                if (f != null) {
+                    val t = java.time.Instant.ofEpochMilli(f.fetched).atZone(java.time.ZoneId.systemDefault()).toLocalTime()
+                    BasicText(
+                        "UPDATED ${clock("%02d:%02d".format(t.hour, t.minute))}  ·  OPEN-METEO",
+                        style = monoStyle(pal.onGround.copy(alpha = 0.45f), 10), modifier = Modifier.padding(start = 4.dp, bottom = 12.dp),
                     )
                 }
-                ListRow("Add a city", "", "plus", pal.tiles[3 % pal.tiles.size], onClick = { adding = true })
-            }
-            Group("TILE") {
-                SwitchRow("High and low", "Today's range", prefs.weatherHiLo) { prefs.weatherHiLo = it }
-                SwitchRow("City name", "Under the temperature", prefs.weatherCity) { prefs.weatherCity = it }
-                SwitchRow("Cat", "On the large tile and here", prefs.weatherCat) { prefs.weatherCat = it }
-            }
-            if (f != null) {
-                val t = java.time.Instant.ofEpochMilli(f.fetched).atZone(java.time.ZoneId.systemDefault()).toLocalTime()
-                BasicText(
-                    "UPDATED ${clock("%02d:%02d".format(t.hour, t.minute))}  ·  OPEN-METEO",
-                    style = monoStyle(pal.onGround.copy(alpha = 0.45f), 10), modifier = Modifier.padding(start = 4.dp, bottom = 12.dp),
-                )
             }
         }
     }
@@ -277,16 +290,11 @@ fun WeatherApp(state: HomeState) {
 }
 
 @Composable
-private fun Forecasted(state: HomeState, f: Forecast) {
+private fun Forecasted(state: HomeState, f: Forecast, tab: Int) {
     val pal = state.palette
     val today = f.days.firstOrNull()
     val (cond, glyph) = WeatherRepo.describe(f.code)
-    val mood = when {
-        glyph == "rain" || glyph == "snow" || glyph == "storm" || glyph == "fog" -> glyph
-        !f.day -> "night"
-        glyph == "sun" -> "sun"
-        else -> "cloud"
-    }
+    val mood = catMood(glyph, f.day)
     val heroCol = pal.tiles[(if (!f.day) 3 else when (glyph) { "sun" -> 0; "rain", "storm" -> 2; "snow" -> 4; else -> 1 }) % pal.tiles.size]
     val ink = pal.ink
     val rainAt = f.hours.firstOrNull { it.rain >= 50 }
@@ -297,7 +305,7 @@ private fun Forecasted(state: HomeState, f: Forecast) {
     }
 
     // Now: the temperature with a big glyph and the cat beside it, a row of small facts, then a one-line outlook.
-    Box(Modifier.fillMaxWidth().clip(TileShape).background(heroCol)) {
+    if (tab == 0) Box(Modifier.fillMaxWidth().clip(TileShape).background(heroCol)) {
         val chip = ink.copy(alpha = 0.14f)
         Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
@@ -305,7 +313,7 @@ private fun Forecasted(state: HomeState, f: Forecast) {
                     BasicText(cond.uppercase(), style = monoStyle(ink, 12, bold = true), maxLines = 1)
                     BasicText("${f.temp}°", style = dispStyle(ink, 92, -0.05f), maxLines = 1, modifier = Modifier.padding(top = 2.dp))
                 }
-                if (state.prefs.weatherCat) Cat(mood = mood, modifier = Modifier.padding(top = 30.dp).size(width = 112.dp, height = 76.dp))
+                if (state.prefs.weatherCat) Cat(mood = mood, cup = catCup(mood, f.temp, f.fahrenheit), modifier = Modifier.padding(top = 30.dp).size(width = 112.dp, height = 76.dp))
                 else Glyph(glyph, ink, 56.dp, 1.8f)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -324,7 +332,7 @@ private fun Forecasted(state: HomeState, f: Forecast) {
     }
 
     // Next 24 hours: the temperature as a filled curve, with the hours under it.
-    InfoCard("NEXT 24 HOURS") {
+    if (tab == 0) InfoCard("NEXT 24 HOURS") {
         val temps = f.hours.map { it.temp }
         val lo = (temps.minOrNull() ?: 0)
         val hi = (temps.maxOrNull() ?: 0).coerceAtLeast(lo + 1)
@@ -372,51 +380,99 @@ private fun Forecasted(state: HomeState, f: Forecast) {
         }
     }
 
-    // Next 7 days, each with a bar from its low to its high on the week's own scale.
-    InfoCard("7 DAYS") {
+    // The week: a one-line summary, then a card for each day with its range on the week's own scale.
+    if (tab == 1) {
         val wLo = f.days.minOfOrNull { it.lo } ?: 0
         val wHi = (f.days.maxOfOrNull { it.hi } ?: 1).coerceAtLeast(wLo + 1)
         val span = (wHi - wLo).toFloat()
-        Column(Modifier.padding(horizontal = 14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            f.days.forEachIndexed { i, d ->
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    BasicText(
-                        if (i == 0) "Today" else d.date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault()),
-                        style = bodyStyle(pal.onGround, 15, medium = true), modifier = Modifier.width(52.dp), maxLines = 1,
-                    )
-                    Glyph(WeatherRepo.describe(d.code).second, pal.onGround, 22.dp, 1.8f)
-                    BasicText(if (d.rain >= 10) "${d.rain}%" else "", style = monoStyle(pal.tiles[0], 10, bold = true), modifier = Modifier.width(34.dp), maxLines = 1)
-                    BasicText("${d.lo}°", style = bodyStyle(pal.onGround.copy(alpha = 0.6f), 14), modifier = Modifier.width(32.dp), maxLines = 1)
-                    Row(Modifier.weight(1f).height(6.dp).clip(CircleShape).background(pal.onGround.copy(alpha = 0.14f))) {
+        val short = TextStyle.SHORT
+        fun dayName(d: java.time.LocalDate) = d.dayOfWeek.getDisplayName(short, Locale.getDefault())
+        val wet = f.days.filter { it.rain >= 40 }
+        val hotDay = f.days.maxByOrNull { it.hi }
+        val coldDay = f.days.minByOrNull { it.lo }
+        val totalMm = f.days.sumOf { it.mm }
+        fun longName(d: java.time.LocalDate) = d.dayOfWeek.getDisplayName(TextStyle.FULL, Locale.getDefault())
+        val headline = when {
+            wet.isEmpty() -> "A dry week ahead"
+            wet.size == f.days.size -> "Rain all week"
+            wet.size == 1 -> "Rain on " + longName(wet[0].date)
+            wet.size <= 3 -> "Rain on " + wet.dropLast(1).joinToString(", ") { dayName(it.date) } + " and " + dayName(wet.last().date)
+            else -> "Rain on ${wet.size} days this week"
+        }
+        Box(Modifier.fillMaxWidth().clip(TileShape).background(pal.tiles[(if (wet.isEmpty()) 0 else 2) % pal.tiles.size])) {
+            Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                BasicText("THIS WEEK", style = monoStyle(ink, 11, bold = true))
+                BasicText(headline, style = dispStyle(ink, 30), maxLines = 2)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOfNotNull(
+                        hotDay?.let { "WARMEST ${it.hi}° ${dayName(it.date).uppercase()}" },
+                        coldDay?.let { "COOLEST ${it.lo}° ${dayName(it.date).uppercase()}" },
+                    ).forEach { t ->
+                        Box(Modifier.clip(RoundedCornerShape(50)).background(ink.copy(alpha = 0.14f)).padding(horizontal = 12.dp, vertical = 7.dp)) {
+                            BasicText(t, style = monoStyle(ink, 10, bold = true), maxLines = 1)
+                        }
+                    }
+                }
+                if (totalMm > 0.0) BasicText("About ${"%.1f".format(totalMm)} ${f.rainUnit} of rain in total.", style = bodyStyle(ink.copy(alpha = 0.85f), 14, medium = true))
+            }
+        }
+        f.days.forEachIndexed { i, d ->
+            val (cond, g) = WeatherRepo.describe(d.code)
+            Column(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(if (i == 0) pal.onGround.copy(alpha = 0.12f) else surfaceColor())
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Column(Modifier.width(64.dp)) {
+                        BasicText(if (i == 0) "Today" else dayName(d.date), style = bodyStyle(pal.onGround, 16, medium = true), maxLines = 1)
+                        BasicText(
+                            d.date.month.getDisplayName(short, Locale.getDefault()).uppercase() + " " + d.date.dayOfMonth,
+                            style = monoStyle(pal.onGround.copy(alpha = 0.55f), 9), maxLines = 1,
+                        )
+                    }
+                    Glyph(g, pal.onGround, 24.dp, 1.8f)
+                    BasicText(cond, style = bodyStyle(pal.onGround.copy(alpha = 0.8f), 13), modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (d.rain >= 10) {
+                        Box(Modifier.clip(RoundedCornerShape(50)).background(pal.tiles[0]).padding(horizontal = 9.dp, vertical = 4.dp)) {
+                            BasicText("${d.rain}%", style = monoStyle(pal.ink, 10, bold = true), maxLines = 1)
+                        }
+                    }
+                }
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    BasicText("${d.lo}°", style = bodyStyle(pal.onGround.copy(alpha = 0.6f), 14), modifier = Modifier.width(34.dp), maxLines = 1)
+                    Row(Modifier.weight(1f).height(7.dp).clip(CircleShape).background(pal.onGround.copy(alpha = 0.14f))) {
                         Spacer(Modifier.weight(((d.lo - wLo) / span).coerceAtLeast(0.001f)))
                         Box(Modifier.weight(((d.hi - d.lo) / span).coerceAtLeast(0.02f)).fillMaxHeight().clip(CircleShape).background(pal.tiles[0]))
                         Spacer(Modifier.weight(((wHi - d.hi) / span).coerceAtLeast(0.001f)))
                     }
-                    BasicText("${d.hi}°", style = bodyStyle(pal.onGround, 14, medium = true), modifier = Modifier.width(32.dp), maxLines = 1)
+                    BasicText("${d.hi}°", style = bodyStyle(pal.onGround, 14, medium = true), modifier = Modifier.width(34.dp), maxLines = 1)
                 }
             }
         }
     }
 
-    // Details
+    // Details, each with a small gauge so a number reads at a glance.
     val stats = ArrayList<WStat>()
     stats.add(WStat("Feels like", "${f.feels}°", when { f.feels > f.temp + 1 -> "Warmer than the air"; f.feels < f.temp - 1 -> "Cooler than the air"; else -> "About the same as the air" }))
-    stats.add(WStat("Humidity", "${f.humidity}%", if (f.humidity < 30) "Dry" else if (f.humidity <= 60) "Comfortable" else "Humid"))
-    stats.add(WStat("Wind", "${f.wind} ${f.windUnit}", "From ${compass(f.windDir)}" + (today?.let { ", up to ${it.wind} today" } ?: "")))
-    stats.add(WStat("Pressure", "${f.pressure} hPa", if (f.pressure < 1000) "Low" else if (f.pressure > 1020) "High" else "Normal"))
-    if (today != null) stats.add(WStat("UV index", "${Math.round(today.uv)}", uvWord(today.uv) + " today"))
-    stats.add(WStat("Rain", "${"%.1f".format(f.precip)} ${f.rainUnit}", today?.let { "Today ${"%.1f".format(it.mm)} ${f.rainUnit}, ${it.rain}% chance" } ?: ""))
-    stats.add(WStat("Cloud cover", "${f.cloud}%", if (f.cloud < 20) "Clear" else if (f.cloud < 50) "Partly cloudy" else if (f.cloud < 85) "Mostly cloudy" else "Overcast"))
-    if (f.aqi >= 0) stats.add(WStat("Air quality", "${f.aqi}", aqiWord(f.aqi)))
-    stats.chunked(2).forEach { pair ->
-        Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            pair.forEach { StatCard(it, Modifier.weight(1f).fillMaxHeight()) }
-            if (pair.size == 1) Spacer(Modifier.weight(1f))
+    stats.add(WStat("Humidity", "${f.humidity}%", if (f.humidity < 30) "Dry" else if (f.humidity <= 60) "Comfortable" else "Humid", f.humidity / 100f))
+    stats.add(WStat("Wind", "${f.wind} ${f.windUnit}", "From ${compass(f.windDir)}" + (today?.let { ", up to ${it.wind} today" } ?: ""), f.wind / (if (f.fahrenheit) 40f else 65f)))
+    stats.add(WStat("Pressure", "${f.pressure} hPa", (if (f.pressure < 1000) "Low" else if (f.pressure > 1020) "High" else "Normal") + ", at sea level", (f.pressure - 980) / 70f))
+    if (today != null) stats.add(WStat("UV index", "${Math.round(today.uv)}", uvWord(today.uv) + " today", (today.uv / 11.0).toFloat()))
+    stats.add(WStat("Rain today", "${"%.1f".format(today?.mm ?: f.precip)} ${f.rainUnit}", today?.let { "${it.rain}% chance of rain" } ?: "", today?.let { it.rain / 100f }))
+    stats.add(WStat("Cloud cover", "${f.cloud}%", if (f.cloud < 20) "Clear" else if (f.cloud < 50) "Partly cloudy" else if (f.cloud < 85) "Mostly cloudy" else "Overcast", f.cloud / 100f))
+    if (f.aqi >= 0) stats.add(WStat("Air quality", "${f.aqi}", "US AQI, " + aqiWord(f.aqi).lowercase(), f.aqi / 300f))
+    if (tab == 2) {
+        stats.chunked(2).forEach { pair ->
+            Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                pair.forEach { StatCard(it, Modifier.weight(1f).fillMaxHeight()) }
+                if (pair.size == 1) Spacer(Modifier.weight(1f))
+            }
         }
     }
 
     // Sun: an arc from sunrise to sunset with the sun where the day has got to.
-    if (today != null && today.sunrise.isNotEmpty() && today.sunset.isNotEmpty()) {
+    if (tab == 0 && today != null && today.sunrise.isNotEmpty() && today.sunset.isNotEmpty()) {
         val rise = minutesOf(today.sunrise)
         val set = minutesOf(today.sunset)
         val nowMin = (f.hours.firstOrNull()?.hour ?: 12) * 60 + 30

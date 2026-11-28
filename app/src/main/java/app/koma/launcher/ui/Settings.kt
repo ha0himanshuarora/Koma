@@ -180,15 +180,20 @@ private fun Hub(state: HomeState) {
             listOf(if (state.dark) "Dark" else "Light", pal.name),
             leading = { HomePreview(state, Modifier.width(78.dp).height(150.dp)) },
         )
-        Group("HOME") {
-            ListRow("Home", (if (state.today) "Today" else "Classic") + " / layout, looks, cards", "widget", t[2 % t.size], onClick = { go("home") })
+        Box(Modifier.tourTarget("settings_home")) {
+            Group("HOME") {
+                ListRow("Home", (if (state.today) "Today" else "Classic") + " / layout, looks, cards", "widget", t[2 % t.size], onClick = { go("home") })
+                ListRow("Tutorial", "Replay the quick tour", "play", t[3 % t.size], onClick = { state.tour.replay() })
+            }
         }
+        Box(Modifier.tourTarget("settings_cards")) {
         Group("CARDS") {
             ListRow("Weather", "", "sun", t[1 % t.size], onClick = { go("weather") })
             ListRow("Music", "", "music", t[2 % t.size], onClick = { go("music") })
             ListRow("Calendar", "", "cal", t[1 % t.size], onClick = { go("calendar") })
             ListRow("Fonts", Fonts.choices.firstOrNull { it.first == state.prefs.font }?.second ?: "Koma default", "type", t[1 % t.size], onClick = { go("type") })
             ListRow("Search", (Engines.all.firstOrNull { it.first == state.prefs.engine }?.second?.first ?: "") + ", swipe up to search", "search", t[4 % t.size], onClick = { go("search") })
+        }
         }
         Group("APPS AND PHONE") {
             ListRow("Apps", "${state.apps.size} apps / " + (IconStyles.styles.firstOrNull { it.first == state.prefs.iconStyle }?.second ?: "Default"), "all", t[2 % t.size], onClick = { go("apps") })
@@ -561,19 +566,29 @@ private fun WeatherPage(state: HomeState) {
     val pal = state.palette
     Page("Weather", "SETTINGS", onBack = { state.settingsPage = "" }) {
         PageHero("WEATHER TILE", "Local forecast", "From Open-Meteo. Only rounded coordinates are sent.", state.palette.tiles[1 % state.palette.tiles.size])
+        WeatherSettingsBody(state)
+    }
+}
+
+/** The weather settings, shared by Koma settings and the settings button inside the Weather app. */
+@Composable
+internal fun ColumnScope.WeatherSettingsBody(state: HomeState) {
+    val pal = state.palette
+    run {
         WeatherOptions(state)
-        Group("THE CAT") {
+        Group("THE CAT", "Dry weather follows the time of day.") {
             GroupPad {
                 listOf(
                     listOf("sun" to "SUNNY", "cloud" to "CLOUDY", "rain" to "RAIN"),
                     listOf("snow" to "SNOW", "storm" to "STORM", "fog" to "FOG"),
-                    listOf("night" to "NIGHT"),
+                    listOf("dawn" to "DAWN", "morning" to "MORNING", "evening" to "EVENING"),
+                    listOf("night" to "NIGHT", "midnight" to "MIDNIGHT"),
                 ).forEach { row ->
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         row.forEach { (mood, name) ->
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Box(Modifier.fillMaxWidth().height(70.dp).clip(RoundedCornerShape(16.dp)).background(pal.tiles[0])) {
-                                    Cat(mood = mood, modifier = Modifier.align(Alignment.BottomEnd).padding(end = 6.dp).size(width = 90.dp, height = 61.dp))
+                                    Cat(mood = mood, cup = if (mood == "evening") "hot" else null, modifier = Modifier.align(Alignment.BottomEnd).padding(end = 6.dp).size(width = 90.dp, height = 61.dp))
                                 }
                                 BasicText(name, style = monoStyle(pal.onGround.copy(alpha = 0.7f), 9))
                             }
@@ -581,6 +596,14 @@ private fun WeatherPage(state: HomeState) {
                         repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
                     }
                 }
+            }
+        }
+        Group("ABOUT THE DATA") {
+            GroupPad {
+                val dim = bodyStyle(pal.onGround.copy(alpha = 0.75f), 13)
+                BasicText("Forecast and conditions come from Open-Meteo, which blends national weather models such as NOAA and DWD on a grid of roughly 11 km. They are model estimates for your spot, not a reading from a nearby station, so they can differ a little from a thermometer outside.", style = dim)
+                BasicText("Air quality comes from the Copernicus CAMS model through Open-Meteo, on the US AQI scale. Pressure is adjusted to sea level. Sunrise and sunset are worked out for your place.", style = dim)
+                BasicText("Koma asks for a fresh forecast at most every 20 minutes. Only your location rounded to about 1 km is sent, and nothing else.", style = dim)
             }
         }
     }

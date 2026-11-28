@@ -74,7 +74,7 @@ class MainActivity : ComponentActivity() {
         state = HomeState(applicationContext)
         setContent {
             HomeScreen(state, homePress, homeInApp)
-            if (askDefault) app.koma.launcher.ui.DefaultLauncherPrompt(state, onSet = { askDefault = false; requestDefaultHome() }, onDismiss = { askDefault = false })
+            if (askDefault && !state.tour.active) app.koma.launcher.ui.DefaultLauncherPrompt(state, onSet = { askDefault = false; requestDefaultHome() }, onDismiss = { askDefault = false })
         }
     }
 

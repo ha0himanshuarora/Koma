@@ -7,6 +7,7 @@ import android.content.res.Configuration
 import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -106,9 +107,11 @@ fun KomaApps(state: HomeState) {
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             PageHero("BUILT IN", "Koma apps", "Made for the launcher. Nothing leaves your phone.", pal.tiles[0])
-            Group {
-                apps.forEachIndexed { i, a ->
-                    ListRow(a.name, glyph = a.glyph, tint = pal.tiles[(i + 1) % pal.tiles.size], onClick = { if (!launchKomaApp(ctx, a)) a.open() })
+            Box(Modifier.tourTarget("kapps_list")) {
+                Group {
+                    apps.forEachIndexed { i, a ->
+                        ListRow(a.name, glyph = a.glyph, tint = pal.tiles[(i + 1) % pal.tiles.size], onClick = { if (state.tour.active || !launchKomaApp(ctx, a)) a.open() })
+                    }
                 }
             }
         }

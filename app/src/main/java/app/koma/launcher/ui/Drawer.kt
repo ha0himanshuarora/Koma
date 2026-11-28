@@ -118,6 +118,7 @@ fun Drawer(state: HomeState) {
     var popupApp by remember { mutableStateOf<AppInfo?>(null) }
     var popupY by remember { mutableFloatStateOf(0f) }
     var sheetApp by remember { mutableStateOf<AppInfo?>(null) }
+    LaunchedEffect(sheetApp) { state.tour.menuOpen = sheetApp != null }
     var editApp by remember { mutableStateOf<AppInfo?>(null) }
     val focusReq = remember { FocusRequester() }
     val listState = rememberLazyListState()
@@ -580,6 +581,7 @@ fun Drawer(state: HomeState) {
                 // Search pill, inside the panel under the list.
                 if (state.prefs.drawerSearch) Row(
                     Modifier
+                        .tourTarget("drawer_search")
                         .fillMaxWidth()
                         .height(48.dp)
                         .clip(RoundedCornerShape(50))

@@ -59,6 +59,9 @@ class PendingWidget(val id: Int, val info: AppWidgetProviderInfo, val stage: Str
 /** Everything the home screen shows, plus the changes the user can make. Saved after every change. */
 class HomeState(private val context: Context) {
     private val sp = context.getSharedPreferences("koma", Context.MODE_PRIVATE)
+
+    /** The first-run tutorial. Decided here, before anything else saves, so a fresh install is told apart from an update. */
+    val tour = Tour(context, sp)
     private fun layoutFile(type: String) = if (type == "today") "layout_today.json" else "layout.json"
     private var store = LayoutStore(context, layoutFile(sp.getString("home_type", "classic") ?: "classic"))
     private val library = Library(context)
@@ -631,7 +634,7 @@ class HomeState(private val context: Context) {
 
     /** Clock, Notes, Reminders and Calculator open in a window of their own (own entry in recents) from the home screen. */
     private fun openInOwnWindow(s: Screen, page: String = ""): Boolean {
-        if (standaloneExit != null) return false
+        if (standaloneExit != null || tour.active) return false
         val id = when (s) {
             Screen.Notes -> "notes"
             Screen.Tasks -> "reminders"
