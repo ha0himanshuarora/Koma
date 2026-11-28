@@ -183,6 +183,11 @@ class HomeState(private val context: Context) {
             Visibility.pendingEdit = false
             if (standaloneExit == null) startEdit()
         }
+        if (Visibility.pendingTour && standaloneExit == null) {
+            Visibility.pendingTour = false
+            goHome()
+            tour.replay()
+        }
     }
 
     init {

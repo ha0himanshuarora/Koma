@@ -13,6 +13,9 @@ object Visibility {
     /** Set by a window of its own (Koma settings) that cannot start editing the home screen itself; the home screen starts it on return. */
     @Volatile var pendingEdit = false
 
+    /** Set by Koma settings (a window of its own) when Tutorial is tapped; the home screen starts the tutorial on return. */
+    @Volatile var pendingTour = false
+
     val shown = MutableStateFlow(true)
     private var visible = 0
 

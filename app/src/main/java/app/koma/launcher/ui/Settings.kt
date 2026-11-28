@@ -183,7 +183,10 @@ private fun Hub(state: HomeState) {
         Box(Modifier.tourTarget("settings_home")) {
             Group("HOME") {
                 ListRow("Home", (if (state.today) "Today" else "Classic") + " / layout, looks, cards", "widget", t[2 % t.size], onClick = { go("home") })
-                ListRow("Tutorial", "Replay the quick tour", "play", t[3 % t.size], onClick = { state.tour.replay() })
+                ListRow("Tutorial", "Replay the quick tour", "play", t[3 % t.size], onClick = {
+                    // Koma settings runs in a window of its own, which cannot show the tutorial: go back to the home screen and start it there.
+                    if (state.standaloneExit != null) { Visibility.pendingTour = true; state.goHome() } else state.tour.replay()
+                })
             }
         }
         Box(Modifier.tourTarget("settings_cards")) {
