@@ -136,6 +136,7 @@ fun WeatherApp(state: HomeState) {
     val pal = state.palette
     val prefs = state.prefs
     var sel by remember { mutableIntStateOf(prefs.weatherSel) }
+    LaunchedEffect(prefs.weatherSel) { if (sel != prefs.weatherSel) sel = prefs.weatherSel }
     val places = wPlaces(state)
     val cur = places[sel.coerceIn(0, places.size - 1)]
     var adding by remember { mutableStateOf(false) }

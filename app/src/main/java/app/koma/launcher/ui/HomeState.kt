@@ -176,6 +176,7 @@ class HomeState(private val context: Context) {
         store = LayoutStore(context, layoutFile(prefs.homeType))
         if (!edit && store.exists()) tiles = store.load()
         dock = loadDock()
+        folders = app.koma.launcher.data.Folders.parse(prefs.foldersJson)
         notes = library.loadNotes().filter { it.trashed == 0L || System.currentTimeMillis() - it.trashed < Notes.BIN_MS }
         tasks = library.loadTasks()
         clock.refresh()

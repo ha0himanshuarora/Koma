@@ -459,9 +459,8 @@ fun TimerTile(state: HomeState, tileId: String, w: Int, h: Int, bg: Color, ink: 
                     }
                 }
                 fun nudge(dir: Int) {
-                    val step = if (mins < 10) 1 else if (mins < 60) 5 else 15
-                    val next = if (dir > 0) mins + step else mins - step
-                    pickMin(next.coerceIn(1, 5940))
+                    // The same steps as the Focus tile: up is 1 under 5 minutes, 5 under an hour, then 15. Down is 1 up to 5, 5 up to an hour, then 15.
+                    pickMin((mins + dir * stepSize(mins, dir)).coerceIn(1, 5940))
                 }
                 if (idle) {
                     // Set any length right here: hold + or - to run through the minutes.

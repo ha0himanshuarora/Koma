@@ -406,6 +406,19 @@ fun FocusScreen(state: HomeState, embedded: Boolean = false) {
     var bagIdx by remember { mutableIntStateOf(bags.indexOfFirst { it.id == state.prefs.focusBag }.coerceAtLeast(0)) }
     var minutes by remember { mutableIntStateOf(state.prefs.focusMinutes.coerceIn(1, 480)) }
     var editingBag by remember { mutableStateOf<Bag?>(null) }
+    // The tile on the home screen changes these too, so follow the saved values instead of keeping the first read.
+    LaunchedEffect(state.prefs.focusMinutes) {
+        val v = state.prefs.focusMinutes.coerceIn(1, 480)
+        if (v != minutes) minutes = v
+    }
+    LaunchedEffect(state.prefs.bags) {
+        val parsed = Bags.parse(state.prefs.bags)
+        if (parsed != bags) bags = parsed
+    }
+    LaunchedEffect(state.prefs.focusBag, state.prefs.bags) {
+        val i = bags.indexOfFirst { it.id == state.prefs.focusBag }
+        if (i >= 0 && i != bagIdx) bagIdx = i
+    }
 
     fun saveBags(list: List<Bag>) {
         bags = list

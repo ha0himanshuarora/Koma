@@ -1176,15 +1176,25 @@ private fun TimerPage(state: HomeState) {
     }
 
     // The wheels open on what was picked, or else on the length of the last session, seconds included.
-    val first = (if (state.timerSec > 0) state.timerSec else if (p.timerLen > 0L) (p.timerLen / 1000L).toInt() else 600).coerceIn(0, 99 * 3600 + 59 * 60 + 59)
+    val first = (if (p.timerLen > 0L) (p.timerLen / 1000L).toInt() else if (state.timerSec > 0) state.timerSec else 600).coerceIn(0, 99 * 3600 + 59 * 60 + 59)
     var h by remember { mutableStateOf(first / 3600) }
     var m by remember { mutableStateOf(first / 60 % 60) }
     var s by remember { mutableStateOf(first % 60) }
     var ver by remember { mutableStateOf(0) }
+    // The length is saved as soon as it changes, so the Timer tile on the home screen shows and runs the same one.
+    fun commit(t: Int) {
+        state.timerSec = t
+        if (t > 0) p.timerLen = t * 1000L
+    }
     fun set(nh: Int, nm: Int, ns: Int) {
         h = nh; m = nm; s = ns
-        state.timerSec = nh * 3600 + nm * 60 + ns
+        commit(nh * 3600 + nm * 60 + ns)
         ver++
+    }
+    // And the other way: a length picked on the tile moves the wheels.
+    LaunchedEffect(p.timerLen) {
+        val t = (p.timerLen / 1000L).toInt()
+        if (t > 0 && t != h * 3600 + m * 60 + s) { h = t / 3600; m = t / 60 % 60; s = t % 60; ver++ }
     }
     val totalSec = h * 3600L + m * 60L + s
     val ends = ZonedDateTime.now().plusSeconds(totalSec).format(endFmt).uppercase()
@@ -1200,9 +1210,9 @@ private fun TimerPage(state: HomeState) {
                 Box(Modifier.align(Alignment.Center).fillMaxWidth().height(64.dp).clip(Mid).background(deepBg()))
                 androidx.compose.runtime.key(ver) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Wheel(h, 100, { if (it != h) { h = it; state.timerSec = h * 3600 + m * 60 + s } }, Modifier.weight(1f))
-                        Wheel(m, 60, { if (it != m) { m = it; state.timerSec = h * 3600 + m * 60 + s } }, Modifier.weight(1f))
-                        Wheel(s, 60, { if (it != s) { s = it; state.timerSec = h * 3600 + m * 60 + s } }, Modifier.weight(1f))
+                        Wheel(h, 100, { if (it != h) { h = it; commit(h * 3600 + m * 60 + s) } }, Modifier.weight(1f))
+                        Wheel(m, 60, { if (it != m) { m = it; commit(h * 3600 + m * 60 + s) } }, Modifier.weight(1f))
+                        Wheel(s, 60, { if (it != s) { s = it; commit(h * 3600 + m * 60 + s) } }, Modifier.weight(1f))
                     }
                 }
             }
@@ -1244,9 +1254,9 @@ private fun TimerPage(state: HomeState) {
                     Box(Modifier.align(Alignment.Center).fillMaxWidth().height(64.dp).clip(Mid).background(deepBg()))
                     androidx.compose.runtime.key(ver) {
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Wheel(h, 100, { if (it != h) { h = it; state.timerSec = h * 3600 + m * 60 + s } }, Modifier.weight(1f))
-                            Wheel(m, 60, { if (it != m) { m = it; state.timerSec = h * 3600 + m * 60 + s } }, Modifier.weight(1f))
-                            Wheel(s, 60, { if (it != s) { s = it; state.timerSec = h * 3600 + m * 60 + s } }, Modifier.weight(1f))
+                            Wheel(h, 100, { if (it != h) { h = it; commit(h * 3600 + m * 60 + s) } }, Modifier.weight(1f))
+                            Wheel(m, 60, { if (it != m) { m = it; commit(h * 3600 + m * 60 + s) } }, Modifier.weight(1f))
+                            Wheel(s, 60, { if (it != s) { s = it; commit(h * 3600 + m * 60 + s) } }, Modifier.weight(1f))
                         }
                     }
                 }
